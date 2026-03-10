@@ -37,10 +37,13 @@ export class DaoGuardian {
   }
 
   async bootstrap(): Promise<void> {
+    const bootstrapStart = Date.now();
     await ensureDir(this.stateDir);
     await ensureDir(this.dataDir);
     await ensureDir(this.logsDir);
     this.config = await this._loadConfig();
+    const bootstrapDurationMs = Date.now() - bootstrapStart;
+    this.logger.info({ bootstrap_ms: bootstrapDurationMs, root: this.root }, "Guardian bootstrap complete");
     const strategyPath = path.join(this.stateDir, "strategy.json");
     const runtimePath = path.join(this.stateDir, "runtime.json");
     const obsPath = path.join(this.stateDir, "observations.json");
