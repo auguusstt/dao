@@ -140,25 +140,33 @@ export interface HealthCheckResult {
 /**
  * Calculate health status based on evolution metrics.
  * Returns health check result for observability tracking.
+ * Flexible enough to handle both evolution status and simulation states.
  */
-export function checkEvolutionHealth(history: Array<{ status: string; tool: string }>): HealthCheckResult {
+export function checkEvolutionHealth(history: Array<any>): HealthCheckResult {
   const timestamp = new Date().toISOString();
   const total = history.length;
-  const promoted = history.filter(h => h.status === "PROMOTED").length;
-  const failed = history.filter(h => h.status === "FAIL").length;
-  const successRate = total > 0 ? promoted / total : 0;
+  
+  // Successful items: PROMOTED (evolution) or RUNNING (simulation)
+  const successful = history.filter(h => h.status === "PROMOTED" || h.state === "RUNNING").length;
+  
+  // Failure indicators: FAIL (evolution) or DEGRADED/RECOVERY (simulation)
+  const failed = history.filter(h => h.status === "FAIL" || h.state === "DEGRADED" || h.state === "RECOVERY").length;
+  
+  const successRate = total > 0 ? successful / total : 0;
   
   // Count consecutive failures from the end
   let consecutiveFailures = 0;
   for (let i = history.length - 1; i >= 0; i--) {
-    if (history[i].status === "FAIL") {
+    const item = history[i];
+    const isFailure = item.status === "FAIL" || item.state === "DEGRADED" || item.state === "RECOVERY";
+    if (isFailure) {
       consecutiveFailures++;
     } else {
       break;
     }
   }
   
-  const lastTool = history.length > 0 ? history[history.length - 1].tool : "none";
+  const lastTool = history.length > 0 ? (history[history.length - 1].tool || "simulation") : "none";
   
   // Determine status
   let status: HealthCheckResult["status"];
@@ -166,19 +174,19 @@ export function checkEvolutionHealth(history: Array<{ status: string; tool: stri
   
   if (consecutiveFailures >= 5) {
     status = "critical";
-    message = `连续失败 ${consecutiveFailures} 次，需要人工介入`;
-  } else if (consecutiveFailures >= 3 || successRate < 0.3) {
+    message = `系统健康度告警: 连续故障 ${consecutiveFailures} 次`;
+  } else if (consecutiveFailures >= 3 || (total > 5 && successRate < 0.3)) {
     status = "degraded";
-    message = `系统性能下降，成功率 ${ (successRate * 100).toFixed(1)}%`;
+    message = `系统性能下降，健康度 ${ (successRate * 100).toFixed(1)}%`;
   } else {
     status = "healthy";
-    message = `运行正常，成功率 ${ (successRate * 100).toFixed(1)}%`;
+    message = `系统运行正常，健康度 ${ (successRate * 100).toFixed(1)}%`;
   }
   
   return {
     timestamp,
     total_cycles: total,
-    successful_promotions: promoted,
+    successful_promotions: successful,
     failed_cycles: failed,
     success_rate: Number(successRate.toFixed(4)),
     consecutive_failures: consecutiveFailures,

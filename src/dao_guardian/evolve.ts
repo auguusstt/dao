@@ -459,8 +459,8 @@ export class DaoEvolver {
   async _availableTools(): Promise<ToolSpec[]> {
     const out: ToolSpec[] = [];
     for (const t of this.config.toolchain) {
-      this._logCommand(`bash -lc ${t.check_cmd}`, { tool: t.name });
-      const cp = spawnSync("bash", ["-lc", t.check_cmd], { cwd: this.root, encoding: "utf-8" });
+      this._logCommand(`sh -c "${t.check_cmd}"`, { tool: t.name });
+      const cp = spawnSync("sh", ["-c", t.check_cmd], { cwd: this.root, encoding: "utf-8" });
       if ((cp.status ?? 1) === 0) out.push(t);
     }
     return out;
@@ -585,15 +585,17 @@ export class DaoEvolver {
       ...(process as any).env, 
       LC_ALL: "C", 
       LANG: "C",
-      FORCE_COLOR: "1",
       TERM: "dumb",
       CI: "true",
+      PAGER: "cat",
+      DEBIAN_FRONTEND: "noninteractive",
+      GEMINI_NON_INTERACTIVE: "true",
       NODE_ENV: "test"
     };
     this.tui.setSubTask(tool.name, "running");
     
-    this._logCommand(`bash -lc ${cmd}`, { cwd: worktree, tool: tool.name });
-    const proc = spawn("bash", ["-lc", cmd], { 
+    this._logCommand(`sh -c "${cmd}"`, { cwd: worktree, tool: tool.name });
+    const proc = spawn("sh", ["-c", cmd], { 
       cwd: worktree, 
       env, 
       stdio: ["ignore", "pipe", "pipe"] 

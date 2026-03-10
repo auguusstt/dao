@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import path from "path";
 import { promises as fs } from "fs";
-import { setupLogger, logMetrics } from "./logging_utils.js";
+import { setupLogger, logMetrics, generateCorrelationId, setGlobalCorrelationId, checkEvolutionHealth, logHealthCheck } from "./logging_utils.js";
 import { readJson, writeJson, appendJsonl, nowIso, ensureDir } from "../common/fs.js";
 
 const STATE_RUNNING = "RUNNING";
@@ -96,7 +96,8 @@ export class DaoGuardian {
     const strategyPath = path.join(this.stateDir, "strategy.json");
     const obsPath = path.join(this.stateDir, "observations.json");
     const cycleStart = Date.now();
-    const corrId = Math.random().toString(36).slice(2, 10);
+    const corrId = generateCorrelationId();
+    setGlobalCorrelationId(corrId);
     const runtime = await readJson<any>(runtimePath);
     const strategy = await readJson<any>(strategyPath);
     const obs = await readJson<any>(obsPath);
@@ -175,6 +176,11 @@ export class DaoGuardian {
     if (runtime.state === STATE_RECOVERY) metrics.recovery_ms = Number((cycleDurationMs - predDurationMs - simDurationMs).toFixed(2));
     if (evolved) metrics.evolve_ms = Number(evolveDurationMs.toFixed(2));
     logMetrics(this.logger, metrics, "info");
+    
+    // Perform and log health check for better observability
+    const health = checkEvolutionHealth(runtime.history || []);
+    logHealthCheck(this.logger, health);
+
     this.logger.info({ corrId, cycle, state: runtime.state, score: runtime.last_score, version: runtime.active_version, duration_ms: cycleDurationMs });
   }
 
