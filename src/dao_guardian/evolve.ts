@@ -15,6 +15,7 @@ type EvolutionConfig = {
   protected_paths: string[];
   allowed_edit_roots: string[];
   toolchain: ToolSpec[];
+  enabled_tools?: string[];
   min_score_promote: number;
   inactivity_timeout_sec: number;
   total_timeout_sec: number;
@@ -29,41 +30,12 @@ class EvoTUI {
   private message: string = "";
   private health?: HealthCheckResult;
   private subTasks: SubTask[] = [];
-  private logs: string[] = [];
   private isTTY: boolean;
-  private heartbeatTimer: NodeJS.Timeout;
-  private terminal?: ProcessTerminal;
-  private tui?: TUI;
-  private logsText?: Text;
-  private footerText?: Text;
+  private lastFooterHeight: number = 0;
 
   constructor() {
     this.isTTY = process.stdout.isTTY;
-    if (this.isTTY) {
-      this.terminal = new ProcessTerminal();
-      this.tui = new TUI(this.terminal);
-      
-      // Layout: Logs (top, scrollable) → Footer (bottom, fixed)
-      this.logsText = new Text("");
-      this.footerText = new Text("");
-      
-      // Add in display order
-      this.tui.addChild(this.logsText);
-      this.tui.addChild(this.footerText);
-      
-      this.tui.start();
-      this.refreshComponents();
-      
-      this.tui.addInputListener((data: string) => {
-        if (matchesKey(data, Key.ctrl("c"))) {
-          try { this.tui?.stop(); } catch {}
-          try { clearInterval(this.heartbeatTimer); } catch {}
-          process.exit(0);
-        }
-        return undefined;
-      });
-    }
-    this.heartbeatTimer = setInterval(() => this.refreshComponents(), 1000);
+    // No more full-screen TUI initialization
   }
 
   updateStatus(cycle: number, objective: string, phase: string, message: string, health?: HealthCheckResult) {
@@ -75,7 +47,7 @@ class EvoTUI {
     if (phase === "START") {
       this.subTasks = [];
     }
-    this.refreshComponents();
+    this.render();
   }
 
   setSubTask(name: string, status: SubTask["status"], reason?: string) {
@@ -93,57 +65,42 @@ class EvoTUI {
         startTime: status === "running" ? Date.now() : undefined
       });
     }
-    this.refreshComponents();
+    this.render();
   }
 
   addLog(text: string) {
-    // Handle multi-line logs and clean them
-    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-    for (const line of lines) {
-      this.logs.push(line);
+    this.clearFooter();
+    // Clean and print the log line
+    const clean = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).join("\n");
+    if (clean) {
+      process.stdout.write("  " + chalk.gray(clean) + "\n");
     }
-    this.refreshComponents();
+    this.render();
   }
 
   appendLog(text: string) {
-    if (this.logs.length === 0) {
-      this.logs.push(text.trim());
-    } else {
-      // Append to the last line directly
-      this.logs[this.logs.length - 1] += text;
-    }
-    this.refreshComponents();
+    this.clearFooter();
+    process.stdout.write(chalk.gray(text));
+    this.render();
   }
 
-  private refreshComponents() {
+  private clearFooter() {
+    if (!this.isTTY || this.lastFooterHeight <= 0) return;
+    // Move cursor up to the start of the footer and clear everything below
+    process.stdout.write(`\x1b[${this.lastFooterHeight}A\x1b[J`);
+    this.lastFooterHeight = 0;
+  }
+
+  private render() {
     if (!this.isTTY) return;
-    const width = this.terminal?.columns || process.stdout.columns || 80;
-    const height = this.terminal?.rows || process.stdout.rows || 24;
     
-    // Calculate footer height (reserved space at bottom)
-    const footerReserved = 12; // Reserve ~12 lines for footer
-    const maxLogLines = Math.max(1, height - footerReserved - 2);
-    
-    // Logs (top, scrollable - show latest lines that fit)
-    const logLines: string[] = [];
-    logLines.push(chalk.magenta.bold("━━━ 实时输出 Live Tool Output ━━━"));
-    
-    // Show only the lines that fit in the available space
-    const displayLogs = this.logs.slice(-maxLogLines);
-    for (const log of displayLogs) {
-      logLines.push(chalk.gray("  " + log));
-    }
-    
-    // Pad with empty lines to fill space (optional, for visual consistency)
-    while (logLines.length < maxLogLines + 1) {
-      logLines.push("");
-    }
-    
-    this.logsText?.setText(logLines.join("\n"));
-    
-    // Footer (bottom, fixed) - contains Header + Status + Progress
+    // Always clear the previous footer before rendering a new one
+    this.clearFooter();
+
+    const width = process.stdout.columns || 80;
     const footerLines: string[] = [];
-    footerLines.push(chalk.cyan.bold("═══ DAO Evolution Terminal ═══"));
+    
+    footerLines.push(chalk.cyan.bold("\n═══ DAO Evolution Terminal ═══"));
     footerLines.push(chalk.gray("─".repeat(Math.min(50, width))));
     
     // Status bar (compact single line)
@@ -161,7 +118,6 @@ class EvoTUI {
       footerLines.push(chalk.gray("─".repeat(Math.min(50, width))));
     }
     
-    // Progress tree
     footerLines.push(chalk.blue.bold("进度树 Progress Tree:"));
     const phases = [
       "START", "ENSURE_HEAD", "CHECK_CLEAN", "CHECK_TOOLS",
@@ -193,10 +149,10 @@ class EvoTUI {
         footerLines.push(`   ${icon} ${chalk.gray(st.name)}${meta}`);
       }
     }
-    
-    this.footerText?.setText(footerLines.join("\n"));
-    
-    this.tui?.requestRender(true);
+
+    const footer = footerLines.join("\n") + "\n";
+    process.stdout.write(footer);
+    this.lastFooterHeight = footerLines.length + 1;
   }
 }
 
@@ -274,6 +230,7 @@ export class DaoEvolver {
         protected_paths: raw.protected_paths || [],
         allowed_edit_roots: raw.allowed_edit_roots || [],
         toolchain: raw.toolchain || [],
+        enabled_tools: raw.enabled_tools,
         min_score_promote: Number(raw.min_score_promote ?? 0.8),
         inactivity_timeout_sec: Number(raw.inactivity_timeout_sec ?? 30),
         total_timeout_sec: Number(raw.total_timeout_sec ?? 300)
@@ -475,7 +432,9 @@ export class DaoEvolver {
 
   async _availableTools(): Promise<ToolSpec[]> {
     const out: ToolSpec[] = [];
+    const enabled = this.config.enabled_tools;
     for (const t of this.config.toolchain) {
+      if (enabled && !enabled.includes(t.name)) continue;
       this._logCommand(`sh -c "${t.check_cmd}"`, { tool: t.name });
       const cp = spawnSync("sh", ["-c", t.check_cmd], { cwd: this.root, encoding: "utf-8" });
       if ((cp.status ?? 1) === 0) out.push(t);
@@ -992,102 +951,90 @@ export class DaoEvolver {
    * - {"type":"result", "status":"success", ...} - final result
    */
   _formatToolLog(toolName: string, toolParser: string | undefined, stream: string, text: string): { text: string; isDelta: boolean } | null {
-    // Try to parse JSON for structured tools
     const name = (toolParser || toolName || "").toLowerCase();
-    if (name === "qwen" || name === "codebuddy" || name === "gemini") {
+    const isKnownTool = name === "qwen" || name === "codebuddy" || name === "gemini";
+
+    if (isKnownTool) {
       try {
         const obj = JSON.parse(text);
         const type = obj?.type as string;
 
         // === GEMINI FORMAT ===
         if (name === "gemini") {
-          // Skip init messages
-          if (type === "init") return null;
+          if (type === "init") {
+            const model = obj?.model || "auto";
+            return { text: chalk.blue(`[system] Gemini initialized (model: ${model})`), isDelta: false };
+          }
           
-          // Handle streaming messages
           if (type === "message") {
-            const role = obj?.role as string;
+            const role = obj?.role || "unknown";
             const content = String(obj?.content || "");
             const isDelta = obj?.delta as boolean;
-            
-            if (role === "assistant" && content) {
-              return { text: isDelta ? content : `[${role}] ${content}`, isDelta };
-            }
-            if (role === "user") return null; // Skip user echo
+            if (content) return { text: isDelta ? content : `[${role}] ${content}`, isDelta };
+            return { text: chalk.dim(`[${role}] (empty message)`), isDelta: false };
           }
 
-          // Handle tool calls
           if (type === "call") {
             const call = obj?.call;
-            const callName = call?.function?.name || call?.name;
+            const callName = call?.function?.name || call?.name || "tool";
             const args = call?.function?.arguments || call?.args || {};
             const target = args.file_path || args.path || args.dest || "";
             return { text: chalk.yellow.bold(`\n[CALL] ${callName}(${target})\n`), isDelta: false };
           }
           
-          // Handle result
           if (type === "result") {
             const status = obj?.status || "done";
             return { text: chalk.green.bold(`\n[Result] ${status}\n`), isDelta: false };
           }
           
-          return null;
+          // Show other gemini metadata
+          const keys = Object.keys(obj).filter(k => k !== "type").join(", ");
+          return { text: chalk.dim(`[gemini:${type}] {${keys}}`), isDelta: false };
         }
 
         // === QWEN/CODEBUDDY FORMAT ===
-        if (type === "system") return null;
+        if (type === "system") {
+          const subtype = obj?.subtype || "";
+          const model = obj?.model || "";
+          if (subtype === "init") {
+            return { text: chalk.blue(`[system] ${name} initialized (model: ${model || "unknown"})`), isDelta: false };
+          }
+          const msg = obj?.message || obj?.text || subtype || "system event";
+          return { text: chalk.blue(`[system] ${msg}`), isDelta: false };
+        }
 
-        // Handle stream_event messages (most common during streaming)
         if (type === "stream_event") {
           const event = obj?.event;
-          const eventType = event?.type as string;
-
-          if (eventType === "content_block_delta") {
+          const evType = event?.type as string;
+          if (evType === "content_block_delta") {
             const delta = event?.delta;
-            const deltaType = delta?.type as string;
-            if (deltaType === "text_delta") {
-              return { text: delta.text || "", isDelta: true };
-            } else if (deltaType === "thinking_delta") {
-              return { text: chalk.dim(delta.thinking || ""), isDelta: true };
-            }
+            if (delta?.type === "text_delta") return { text: delta.text || "", isDelta: true };
+            if (delta?.type === "thinking_delta") return { text: chalk.dim(delta.thinking || ""), isDelta: true };
             return null;
           }
-
-          if (eventType === "tool_call_delta") {
+          if (evType === "tool_call_delta") {
             const call = event?.delta?.tool_call;
             if (call?.name) return { text: chalk.yellow.bold(`\n[CALL] ${call.name}`), isDelta: false };
             if (call?.arguments) return { text: chalk.yellow(call.arguments), isDelta: true };
             return null;
           }
-
-          if (eventType === "message_start" || 
-              eventType === "content_block_start" || 
-              eventType === "content_block_stop" ||
-              eventType === "message_stop") {
-            return null;
-          }
+          return { text: chalk.dim(`[event] ${evType}`), isDelta: false };
         }
 
-        // Handle assistant messages (complete message snapshots)
         if (type === "assistant") {
-          const message = obj?.message;
-          const role = message?.role as string;
-          const content = message?.content as any[];
-          if (!content) return null;
-
-          for (const block of content) {
-            if (block.type === "text") {
-              return { text: block.text || "", isDelta: false };
-            }
-            if (block.type === "tool_use") {
-              const target = block.input?.file_path || block.input?.path || "";
-              return { text: chalk.yellow.bold(`\n[TOOL] ${block.name}(${target})\n`), isDelta: false };
+          const content = obj?.message?.content as any[];
+          if (content) {
+            for (const block of content) {
+              if (block.type === "text") return { text: block.text || "", isDelta: false };
+              if (block.type === "tool_use") {
+                const target = block.input?.file_path || block.input?.path || "";
+                return { text: chalk.yellow.bold(`\n[TOOL] ${block.name}(${target})\n`), isDelta: false };
+              }
             }
           }
-          return null;
+          return { text: chalk.dim(`[assistant] (non-text message)`), isDelta: false };
         }
 
-        // Handle final result
         if (type === "result") {
           const result = String(obj?.result || "ok");
           const duration = obj?.duration_ms ? `${Math.round(obj.duration_ms)}ms` : "";
@@ -1095,18 +1042,17 @@ export class DaoEvolver {
         }
 
         const content = this._extractStreamText(obj);
-        if (content && content.trim()) {
-          return { text: content, isDelta: false };
-        }
+        if (content && content.trim()) return { text: content, isDelta: false };
 
-        return null;
+        const keys = Object.keys(obj).filter(k => k !== "type").join(", ");
+        return { text: chalk.dim(`[${type || "json"}] {${keys}}`), isDelta: false };
 
       } catch {
-        // Not JSON, fall through to plain text
+        // Not JSON
       }
     }
 
-    const cleaned = text.split(/\s+/).join(" ").trim();
+    const cleaned = text.split(/\r?\n/).join(" ").trim();
     return cleaned ? { text: cleaned, isDelta: false } : null;
   }
 

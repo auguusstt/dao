@@ -17,6 +17,7 @@
     "src",
     "config"
   ],
+  "enabled_tools": ["qwen"],
   "toolchain": [
     {
       "name": "gemini",
