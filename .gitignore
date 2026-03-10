@@ -1,0 +1,20 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Build output
+dist/
+
+# Env / OS
+.env
+.DS_Store
+
+# Logs
+logs/
+
+.worktrees/
+state/
+logs/
+data/

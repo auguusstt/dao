@@ -1,0 +1,6 @@
+{
+  "topics": ["石油价格", "道琼斯指数", "中美战争概率"],
+  "degrade_threshold": 0.72,
+  "evolve_every": 2,
+  "keep_snapshots": 5
+}
