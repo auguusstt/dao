@@ -21,3 +21,13 @@ export function logMetrics(logger: pino.Logger, metrics: Record<string, any>, le
   else if (l === "error") logger.error({ metrics }, msg);
   else logger.info({ metrics }, msg);
 }
+export function safeLog(logger: pino.Logger, level: string, msg: string, ...args: any[]): boolean {
+  try {
+    const l = level.toLowerCase();
+    const fn = (logger as any)[l] ?? logger.info.bind(logger);
+    fn(msg, ...(args as any));
+    return true;
+  } catch {
+    return false;
+  }
+}
