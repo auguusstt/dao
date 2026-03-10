@@ -1,6 +1,6 @@
 import path from "path";
 import { promises as fs } from "fs";
-import { spawn, spawnSync } from "child_process";
+import { spawn, spawnSync, ChildProcess } from "child_process";
 import os from "os";
 import chalk from "chalk";
 import { TUI, Text, ProcessTerminal, matchesKey, Key, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
@@ -33,9 +33,34 @@ class EvoTUI {
   private subTasks: SubTask[] = [];
   private isTTY: boolean;
   private lastFooterHeight: number = 0;
+  private onExitCallback?: () => void;
 
   constructor() {
     this.isTTY = process.stdout.isTTY;
+    if (this.isTTY) {
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (key: string) => {
+        // Ctrl+C (unicode \u0003) or 'q'
+        if (key === "\u0003" || key === "q") {
+          this.restoreTTY();
+          if (this.onExitCallback) this.onExitCallback();
+          else process.exit(0);
+        }
+      });
+    }
+  }
+
+  restoreTTY() {
+    if (this.isTTY) {
+      process.stdin.setRawMode(false);
+      process.stdin.pause();
+    }
+  }
+
+  onExit(cb: () => void) {
+    this.onExitCallback = cb;
   }
 
   updateStatus(cycle: number, objective: string, phase: string, message: string, health?: HealthCheckResult) {
@@ -164,6 +189,7 @@ export class DaoEvolver {
   logger = setupLogger("dao.evolver");
   tui = new EvoTUI();
   planner: DaoPlanner;
+  private _currentToolProc: ChildProcess | null = null;
 
   constructor(root: string) {
     this.root = root;
@@ -248,6 +274,26 @@ export class DaoEvolver {
 
   async run(cycles: number, sleepSeconds: number): Promise<void> {
     await this.bootstrap();
+
+    let isExiting = false;
+    const exitGracefully = () => {
+      if (isExiting) return;
+      isExiting = true;
+      this.tui.restoreTTY();
+      this.tui.addLog(chalk.yellowBright("\n[EXIT] 接收到退出信号，正在安全关闭并清理所有子进程..."));
+      
+      this.planner.cleanup();
+      if (this._currentToolProc && this._currentToolProc.pid) {
+        try { process.kill(-this._currentToolProc.pid, "SIGKILL"); } catch {}
+      }
+      
+      process.exit(0);
+    };
+
+    this.tui.onExit(exitGracefully);
+    process.on("SIGINT", exitGracefully);
+    process.on("SIGTERM", exitGracefully);
+
     for (let i = 0; i < cycles; i++) {
       const cont = await this.runOnce();
       if (!cont) {
@@ -350,7 +396,6 @@ export class DaoEvolver {
       
       let [validateOk, validateDetail] = await this._validate(worktree);
       
-      // === SELF-HEALING LOOP ===
       if (!validateOk && toolOk) {
         updateUI("SELF_HEAL", "验证失败，启动自我修复...", objective);
         this.tui.addLog(chalk.yellowBright(`[Self-Heal] 检测到验证失败，正在将错误反馈给 Agent 修复...`));
@@ -366,7 +411,7 @@ export class DaoEvolver {
         validateDetail = v2Detail;
         
         if (validateOk) this.tui.addLog(chalk.greenBright(`[Self-Heal] 自我修复成功！`));
-        else this.tui.addLog(chalk.redBright(`[Self-Heal] 自我修复后验证仍失败。`));
+        else this.tui.addLog(chalk.redBright(`[Self-Heal] 自提修复后验证仍失败。`));
       }
 
       updateUI("VALIDATE", "执行最终护栏检查", objective);
@@ -400,53 +445,65 @@ export class DaoEvolver {
           updateUI("DONE", "进化成功并合并", objective);
         } else {
           runtime.failed_cycles += 1;
-          this._record(runtime, cycle, "FAIL", `合并失败: ${mergeMsg}`, score, tool.name, changedFiles.length);
-          updateUI("FAIL", "提交过程出错", objective);
+          this._record(runtime, cycle, "FAIL", `提交/合并失败: ${commitMsg} / ${mergeMsg}`, score, tool.name, changedFiles.length);
+          updateUI("FAIL", "提交/合并受阻");
         }
       } else {
+        const reason = !toolOk ? "工具执行失败" : (!changedFiles.length ? "无代码改动" : (!guardOk ? `护栏拒绝 (${guardReason})` : `验证失败或得分低 (${score.toFixed(2)})`));
         runtime.failed_cycles += 1;
-        const reason = !changedFiles.length ? "无代码改动" : (!guardOk ? `护栏拒绝: ${guardReason}` : `校验未通过: ${validateDetail.slice(0, 100)}`);
         this._record(runtime, cycle, "FAIL", reason, score, tool.name, changedFiles.length);
-        updateUI("FAIL", `进化未达标: ${reason.slice(0, 50)}`, objective);
+        updateUI("FAIL", reason, objective);
+        
+        if (score < 0.5 && toolOk) {
+          this.tui.addLog(chalk.redBright(`[WARNING] 低分进化尝试，已自动舍弃。`));
+        }
       }
+    } catch (err) {
+      logException(this.logger, err, `Cycle ${cycle} crashed`);
+      runtime.failed_cycles += 1;
+      this._record(runtime, cycle, "FAIL", `系统崩溃: ${String(err)}`, 0.0, tool.name);
+      updateUI("FAIL", "系统崩溃");
     } finally {
-      await this._cleanupWorktree(worktree, branch);
-      await this._trace(cycle, "END", "周期结束", {});
-      const health = checkEvolutionHealth(runtime.history || []);
-      logHealthCheck(this.logger, health);
       await writeJson(runtimePath, runtime);
+      await this._cleanupWorktree(worktree, branch);
     }
     return true;
   }
 
+  async _availableTools(): Promise<ToolSpec[]> {
+    const list: ToolSpec[] = [];
+    for (const tool of this.config.toolchain) {
+      if (this.config.enabled_tools && !this.config.enabled_tools.includes(tool.name)) continue;
+      const cp = spawnSync("sh", ["-c", tool.check_cmd], { encoding: "utf-8" });
+      if (cp.status === 0) list.push(tool);
+    }
+    return list;
+  }
+
+  async _ensureGitHead(): Promise<[boolean, string]> {
+    const cp = spawnSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: this.root, encoding: "utf-8" });
+    const branch = cp.stdout.trim();
+    if (branch !== "main") {
+       this.tui.addLog(chalk.yellow(`[GIT] 当前分支为 ${branch}，尝试切回 main...`));
+       spawnSync("git", ["checkout", "main"], { cwd: this.root });
+    }
+    spawnSync("git", ["pull", "origin", "main"], { cwd: this.root });
+    return [true, "ok"];
+  }
+
   async _checkMainRepoClean(): Promise<[boolean, string]> {
     const cp = spawnSync("git", ["status", "--porcelain"], { cwd: this.root, encoding: "utf-8" });
-    if (cp.status !== 0) return [false, "git status 执行失败"];
-    if (cp.stdout.trim()) {
-      const msg = "工作区不洁，进入 Dirty Merge 模式";
-      this.tui.addLog(chalk.yellow(`[!] ${msg}`));
-      return [true, msg];
+    const out = cp.stdout.trim();
+    if (out) {
+       this.tui.addLog(chalk.yellowBright(`[!] 工作区不洁，进入 Dirty Merge 模式`));
+       return [true, "dirty"];
     }
     return [true, "clean"];
   }
 
-  async _availableTools(): Promise<ToolSpec[]> {
-    const out: ToolSpec[] = [];
-    for (const t of this.config.toolchain) {
-      if (this.config.enabled_tools && !this.config.enabled_tools.includes(t.name)) continue;
-      const cp = spawnSync("sh", ["-c", t.check_cmd], { cwd: this.root, encoding: "utf-8" });
-      if ((cp.status ?? 1) === 0) out.push(t);
-      else this.tui.addLog(chalk.dim(`[Check] 工具 ${t.name} 不可用 (跳过)`));
-    }
-    return out;
-  }
-
-  async _ensureGitHead(): Promise<[boolean, string]> {
-    const cp = spawnSync("git", ["rev-parse", "--verify", "HEAD"], { cwd: this.root, encoding: "utf-8" });
-    if ((cp.status ?? 1) === 0) return [true, "ok"];
-    
-    this.tui.addLog(chalk.yellow("[!] Git 未初始化，正在执行 Bootstrap 提交..."));
-    const addTargets = ["README.md", "config", "src", "package.json", "tsconfig.json"];
+  async _initRepo(): Promise<[boolean, string]> {
+    spawnSync("git", ["init"], { cwd: this.root });
+    const addTargets = ["src", "package.json", "tsconfig.json", "config", "AGENTS.md", "README.md", "ROADMAP.md"];
     spawnSync("git", ["add", ...addTargets], { cwd: this.root });
     const commit = spawnSync("git", ["commit", "-m", "chore: bootstrap dao-ts"], { cwd: this.root, encoding: "utf-8" });
     return (commit.status ?? 1) === 0 ? [true, "bootstrapped"] : [false, "Git 初始化失败"];
@@ -490,14 +547,22 @@ export class DaoEvolver {
     this.tui.setSubTask(tool.name, "running");
     this._logCommand(`sh -c "${cmd}"`, { cwd: worktree, tool: tool.name });
     
-    const proc = spawn("sh", ["-c", cmd], { cwd: worktree, stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn("sh", ["-c", cmd], { 
+      cwd: worktree, 
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: true
+    });
+    this._currentToolProc = proc;
     const lines: string[] = [];
     let lastOutput = Date.now();
 
     const timer = setInterval(() => {
       if (Date.now() - lastOutput > this.config.inactivity_timeout_sec * 1000) {
         this.tui.addLog(chalk.redBright(`[TIMEOUT] 工具 ${tool.name} 无响应已超过 ${this.config.inactivity_timeout_sec}s`));
-        try { proc.kill(); } catch {}
+        try { 
+          if (proc.pid) process.kill(-proc.pid, "SIGKILL"); 
+          else proc.kill("SIGKILL");
+        } catch {}
         clearInterval(timer);
       }
     }, 1000);
@@ -521,7 +586,16 @@ export class DaoEvolver {
     proc.stdout.on("data", (d: Buffer) => processStream(d, "stdout"));
     proc.stderr.on("data", (d: Buffer) => processStream(d, "stderr"));
 
-    const rc = await new Promise<number>(resolve => proc.on("close", (code: number | null) => resolve(code ?? 1)));
+    const rc = await new Promise<number>(resolve => {
+      proc.on("close", (code: number | null) => {
+        this._currentToolProc = null;
+        resolve(code ?? 1);
+      });
+      proc.on("error", () => {
+        this._currentToolProc = null;
+        resolve(1);
+      });
+    });
     clearInterval(timer);
     
     const ok = (rc === 0 || lines.length > 5);
@@ -706,7 +780,6 @@ export class DaoEvolver {
         let stats = chalk.greenBright.bold(`\n[Result] ${result}`);
         stats += chalk.white(`\n[Stats] Turns: ${turns} | Usage: ${input} in / ${output} out`);
         
-        // Try to capture quota info from text if not in structured field
         if (text.includes("quota")) {
           const quotaMatch = text.match(/quota[^]*/i);
           if (quotaMatch) stats += chalk.yellow(`\n[Quota] ${quotaMatch[0].split("\n")[0]}`);
@@ -728,7 +801,12 @@ export async function printStatus(root: string, tail: number = 8): Promise<void>
   try {
     const rt = await readJson<any>(path.join(root, "state", "evolution_runtime.json"));
     console.log(`Runtime: Cycle ${rt.cycle}, Promoted ${rt.successful_promotions}, Failed ${rt.failed_cycles}`);
+    const history = rt.history || [];
+    for (const e of history.slice(-tail)) {
+      const color = e.status === "PROMOTED" ? chalk.green : (e.status === "FAIL" ? chalk.red : chalk.yellow);
+      console.log(`${chalk.dim(e.ts)} [${color(e.status)}] ${e.tool} - ${e.reason}`);
+    }
   } catch {
-    console.log("Runtime: not initialized");
+    console.log("No runtime data found.");
   }
 }

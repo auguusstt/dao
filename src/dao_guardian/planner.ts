@@ -1,6 +1,6 @@
 import path from "path";
 import { promises as fs } from "fs";
-import { spawnSync } from "child_process";
+import { spawn, spawnSync, ChildProcess } from "child_process";
 import { readJson, writeJson, appendJsonl, nowIso } from "../common/fs.js";
 import chalk from "chalk";
 import { setupLogger } from "./logging_utils.js";
@@ -12,27 +12,6 @@ export type PlanResult = {
   roadmap_update?: string;
 };
 
-type EvolutionEvent = {
-  ts: string;
-  cycle: number;
-  status: string;
-  reason?: string;
-  score?: number;
-  tool?: string;
-  changed_count?: number;
-};
-
-type EventSummary = {
-  totalCycles: number;
-  successfulPromotions: number;
-  failedCycles: number;
-  successRate: number;
-  consecutiveFailures: number;
-  commonFailureModes: Record<string, number>;
-  lastSuccessfulTool?: string;
-  avgScore: number;
-};
-
 export class DaoPlanner {
   root: string;
   agentsPath: string;
@@ -40,6 +19,7 @@ export class DaoPlanner {
   logsDir: string;
   stateDir: string;
   logger = setupLogger("dao.planner");
+  private _currentProc: ChildProcess | null = null;
 
   constructor(root: string) {
     this.root = root;
@@ -49,32 +29,33 @@ export class DaoPlanner {
     this.stateDir = path.join(root, "state");
   }
 
+  cleanup() {
+    if (this._currentProc && this._currentProc.pid) {
+      try {
+        process.kill(-this._currentProc.pid, "SIGKILL");
+      } catch (e) {
+        try { this._currentProc.kill("SIGKILL"); } catch {}
+      }
+      this._currentProc = null;
+    }
+  }
+
   async plan(
     tool: { name: string; run_cmd: string },
     onLog?: (msg: string) => void
   ): Promise<PlanResult | null> {
-    const log = (msg: string) => onLog ? onLog(msg) : console.log(msg);
-
-    this.logger.info({ tool: tool.name }, "开始生成进化规划");
-
+    // 这里我们不再使用 onLog 封装，而是直接操作 stdout 保证“纯转发”
+    
     const agents = await this._safeRead(this.agentsPath);
     const roadmap = await this._safeRead(this.roadmapPath);
     const recentEvents = await this._getRecentEvents(15);
     const eventSummary = this._summarizeEvents(recentEvents);
 
-    this.logger.info({
-      total_cycles: eventSummary.totalCycles,
-      success_rate: eventSummary.successRate,
-      consecutive_failures: eventSummary.consecutiveFailures
-    }, "执行记录分析完成");
-
     const failureModesStr = Object.entries(eventSummary.commonFailureModes)
-      .sort((a, b) => b[1] - a[1])
       .map(([mode, count]) => `   - ${mode}: ${count} 次`)
       .join("\n") || "   无显著失败模式";
 
-    const prompt = `
-你是本项目的"大脑" (Planner Agent)。你的任务是分析当前进化状态，并规划接下来的具体目标。
+    const prompt = `你是本项目的"大脑" (Planner Agent)。你的任务是分析当前进化状态，并规划接下来的具体目标。
 
 ### 1. 宪法 (AGENTS.md)
 ${agents}
@@ -82,207 +63,124 @@ ${agents}
 ### 2. 当前路线图 (ROADMAP.md)
 ${roadmap}
 
-### 3. 执行记录统计 (Event Summary)
-- 总周期数：${eventSummary.totalCycles}
-- 成功晋升：${eventSummary.successfulPromotions}
-- 失败周期：${eventSummary.failedCycles}
+### 3. 执行统计
+- 总周期：${eventSummary.totalCycles}
 - 成功率：${(eventSummary.successRate * 100).toFixed(1)}%
 - 连续失败：${eventSummary.consecutiveFailures}
-- 平均得分：${eventSummary.avgScore.toFixed(2)}
-- 最后成功工具：${eventSummary.lastSuccessfulTool || "无"}
 
-### 4. 失败模式分析 (Failure Mode Analysis)
+### 4. 失败模式
 ${failureModesStr}
 
-### 5. 最近执行记录 (Recent Events, 最近 15 条)
-${recentEvents.map(e => `   [Cycle ${e.cycle}] ${e.status}: ${e.reason || "ok"} (tool=${e.tool || "n/a"}, score=${e.score?.toFixed(2) || "n/a"})`).join("\n")}
-
-### 你的任务：
-1. **反思**：
-   - 为什么之前的尝试成功或失败了？
-   - 是否存在重复的失败模式？
-   - 当前工具链是否适合目标任务？
-
-2. **规划**：
-   - 基于路线图和反思，确定下一轮进化的"具体目标" (next_objective)
-   - 推荐"优先动作" (next_actions)，考虑之前的失败原因
-   - 如果连续失败 >= 3 次，建议切换策略或降低目标复杂度
-
-3. **更新路线图**：如果需要，建议对 ROADMAP.md 的修改。
-
-### 输出格式：
-必须返回合法的 JSON 对象，包含以下字段：
-- thought: 你的深度思考过程（包括对失败模式的分析）。
-- next_objective: 下一轮的具体目标（字符串）。
-- next_actions: 优先级排序的动作列表（字符串数组）。
-- roadmap_update: (可选) 对 ROADMAP.md 的最新观察或待办建议。
-
-**注意：请直接输出 JSON，不要包含额外的 Markdown 代码块语法，除非工具要求。**
-`;
+请直接输出 JSON，包含 thought, next_objective, next_actions。`;
 
     const tmpPromptFile = path.join(this.stateDir, "last_planner_prompt.txt");
     await fs.writeFile(tmpPromptFile, prompt, "utf-8");
 
-    // 调用工具进行推断 (Inquiry Call)
     let cmd = tool.run_cmd;
-    
-    const replacements: Record<string, string> = {
-      prompt_file: JSON.stringify(tmpPromptFile).slice(1, -1)
-    };
+    const replacements: Record<string, string> = { prompt_file: tmpPromptFile };
     for (const [k, v] of Object.entries(replacements)) cmd = cmd.split(`{${k}}`).join(v);
 
-    log(chalk.blueBright(`[Planner] 执行规划命令: ${cmd}`));
-    const cp = spawnSync("sh", ["-c", cmd], { cwd: this.root, encoding: "utf-8" });
+    process.stdout.write(chalk.blueBright(`\n[Planner] 启动原始转发模式执行: ${cmd}\n`));
     
-    const output = cp.stdout || "";
-    const stderr = cp.stderr || "";
+    // 环境变量增加强制刷新输出的标志
+    const env = { 
+      ...process.env, 
+      FORCE_COLOR: "1", 
+      PYTHONUNBUFFERED: "1",
+      NODE_ENV: "production" 
+    };
 
-    if (cp.status !== 0) {
-      log(chalk.red(`[Planner] 规划工具进程报错 (退出码: ${cp.status})`));
-      if (stderr) log(chalk.red(`[Planner] STDERR: ${stderr.trim()}`));
-      // Don't return null yet, try to see if it output valid JSON before crashing
-    }
+    const proc = spawn("sh", ["-c", cmd], { 
+      cwd: this.root,
+      detached: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env
+    });
+    this._currentProc = proc;
 
-    if (!output.trim()) {
-      log(chalk.red("[Planner] 规划工具未返回任何标准输出"));
-      return null;
-    }
+    let output = "";
+    let stderr = "";
 
-    try {
-      // 提取 JSON (Handle stream-json where multiple objects might exist)
-      const lines = output.split("\n").filter((line: string) => line.trim().startsWith("{"));
-      
-      for (const line of lines.reverse()) {
-        try {
-          const obj = JSON.parse(line);
-          if (obj.type === "assistant" && obj.message?.content) {
-            for (const block of obj.message.content) {
-              if (block.type === "text" && block.text) {
-                const jsonMatch = block.text.match(/\{[\s\S]*\}/);
-                if (jsonMatch) {
-                  const res = JSON.parse(jsonMatch[0]) as PlanResult;
-                  if (res.next_objective) return res;
-                }
-              }
-            }
+    // 真正的“纯转发”：不分行，不解析，收到什么字节就吐出什么字节
+    proc.stdout.on("data", (chunk) => {
+      const s = chunk.toString();
+      output += s;
+      process.stdout.write(s);
+    });
+
+    proc.stderr.on("data", (chunk) => {
+      const s = chunk.toString();
+      stderr += s;
+      process.stderr.write(chalk.red.dim(s));
+    });
+
+    const exitCode = await new Promise<number>((resolve) => {
+      proc.on("close", (code) => {
+        this._currentProc = null;
+        resolve(code ?? 0);
+      });
+      proc.on("error", () => {
+        this._currentProc = null;
+        resolve(1);
+      });
+    });
+
+    process.stdout.write(chalk.blueBright(`\n[Planner] 执行结束 (Exit: ${exitCode})，正在解析结果...\n`));
+
+    return this._parseFinalResult(output);
+  }
+
+  private _parseFinalResult(output: string): PlanResult | null {
+    // 依然保持强大的解析逻辑，但只在进程结束后运行一次
+    const lines = output.split("\n").filter(l => l.trim());
+    for (const line of lines.reverse()) {
+      try {
+        const obj = JSON.parse(line);
+        if (obj.next_objective && obj.next_actions) return obj as PlanResult;
+        if (obj.type === "assistant") {
+          const content = obj.message?.content;
+          const txt = Array.isArray(content) ? content.find((c: any) => c.type === "text")?.text : null;
+          if (txt) {
+            const jsonMatch = txt.match(/\{[\s\S]*\}/);
+            if (jsonMatch) return JSON.parse(jsonMatch[0]);
           }
-          if (obj.next_objective && obj.next_actions) return obj as PlanResult;
-        } catch { continue; }
-      }
-
-      // Fallback: full text search
-      const jsonMatch = output.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const res = JSON.parse(jsonMatch[0]) as PlanResult;
-        if (res.next_objective) return res;
-      }
-      
-      log(chalk.yellow("[Planner] 无法从结构化输出中解析 JSON，尝试展示原始响应以供调试..."));
-      log(chalk.white(`--- 工具输出开始 ---\n${output.slice(0, 2000)}\n--- 工具输出结束 ---`));
-    } catch (e) {
-      log(chalk.red(`[Planner] 解析异常: ${e instanceof Error ? e.message : String(e)}`));
+        }
+      } catch {}
+    }
+    const jsonMatch = output.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try { return JSON.parse(jsonMatch[0]); } catch {}
     }
     return null;
   }
 
   private async _safeRead(p: string): Promise<string> {
-    try {
-      return await fs.readFile(p, "utf-8");
-    } catch {
-      return "";
-    }
+    try { return await fs.readFile(p, "utf-8"); } catch { return ""; }
   }
 
-  private async _getRecentEvents(n: number): Promise<EvolutionEvent[]> {
+  private async _getRecentEvents(n: number): Promise<any[]> {
     const p = path.join(this.logsDir, "evolution_events.jsonl");
     try {
       const data = await fs.readFile(p, "utf-8");
-      const lines = data.split("\n").filter(Boolean);
-      const events: EvolutionEvent[] = lines.slice(-n).map((line: string) => JSON.parse(line));
-      return events;
-    } catch {
-      return [];
-    }
+      return data.split("\n").filter(Boolean).slice(-n).map(line => JSON.parse(line));
+    } catch { return []; }
   }
 
-  private _summarizeEvents(events: EvolutionEvent[]): EventSummary {
+  private _summarizeEvents(events: any[]): any {
     const total = events.length;
-    if (total === 0) {
-      return {
-        totalCycles: 0,
-        successfulPromotions: 0,
-        failedCycles: 0,
-        successRate: 0,
-        consecutiveFailures: 0,
-        commonFailureModes: {},
-        avgScore: 0
-      };
-    }
-
-    const successfulPromotions = events.filter(e => e.status === "PROMOTED").length;
-    const failedCycles = events.filter(e => e.status === "FAIL").length;
-    const successRate = successfulPromotions / total;
-
-    // 计算连续失败次数
+    if (total === 0) return { totalCycles: 0, successRate: 0, consecutiveFailures: 0, commonFailureModes: {} };
+    const successCount = events.filter(e => e.status === "PROMOTED").length;
     let consecutiveFailures = 0;
     for (let i = events.length - 1; i >= 0; i--) {
-      if (events[i].status === "FAIL") {
-        consecutiveFailures++;
-      } else {
-        break;
-      }
+      if (events[i].status === "FAIL") consecutiveFailures++; else break;
     }
-
-    // 分析失败模式
-    const failureModes: Record<string, number> = {};
+    const modes: Record<string, number> = {};
     for (const e of events) {
       if (e.status === "FAIL" && e.reason) {
-        const mode = this._classifyFailureMode(e.reason);
-        failureModes[mode] = (failureModes[mode] || 0) + 1;
+        const m = e.reason.includes("timeout") ? "timeout" : (e.reason.includes("校验") ? "build_fail" : "other");
+        modes[m] = (modes[m] || 0) + 1;
       }
     }
-
-    // 找到最后成功的工具
-    const lastSuccessfulEvent = events.slice().reverse().find(e => e.status === "PROMOTED");
-    const lastSuccessfulTool = lastSuccessfulEvent?.tool;
-
-    // 计算平均得分
-    const scores = events.filter(e => e.score !== undefined).map(e => e.score!);
-    const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
-
-    return {
-      totalCycles: total,
-      successfulPromotions,
-      failedCycles,
-      successRate,
-      consecutiveFailures,
-      commonFailureModes: failureModes,
-      lastSuccessfulTool,
-      avgScore
-    };
-  }
-
-  private _classifyFailureMode(reason: string): string {
-    const lower = reason.toLowerCase();
-    if (lower.includes("timeout") || lower.includes("无响应")) return "timeout";
-    if (lower.includes("无代码改动") || lower.includes("no changes")) return "no_changes";
-    if (lower.includes("校验") || lower.includes("validation") || lower.includes("build")) return "validation_failed";
-    if (lower.includes("护栏") || lower.includes("guard") || lower.includes("protected")) return "guard_blocked";
-    if (lower.includes("git") || lower.includes("merge") || lower.includes("branch")) return "git_error";
-    if (lower.includes("工具") || lower.includes("tool") || lower.includes("exit")) return "tool_error";
-    return "unknown";
-  }
-
-  private async _updateRoadmap(newObservation: string): Promise<void> {
-    let current = await this._safeRead(this.roadmapPath);
-    if (!current) return;
-
-    const now = new Date().toISOString().split("T")[0];
-    const update = `\n- [ ] [Auto-Obs ${now}] ${newObservation}`;
-    
-    if (current.includes("## 1. 核心观察")) {
-      current = current.replace("## 1. 核心观察", `## 1. 核心观察${update}`);
-      await fs.writeFile(this.roadmapPath, current, "utf-8");
-    }
+    return { totalCycles: total, successRate: successCount / total, consecutiveFailures, commonFailureModes: modes };
   }
 }
