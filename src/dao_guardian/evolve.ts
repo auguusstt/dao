@@ -5,7 +5,7 @@ import os from "os";
 import chalk from "chalk";
 import { TUI, Text, ProcessTerminal, matchesKey, Key, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { readJson, writeJson, appendJsonl, nowIso, ensureDir, backupFile } from "../common/fs.js";
-import { setupLogger, logSummary, logException, checkEvolutionHealth, logHealthCheck, logToolFailure, ToolFailureAnalysis } from "./logging_utils.js";
+import { setupLogger, logSummary, logException, checkEvolutionHealth, logHealthCheck, logToolFailure, ToolFailureAnalysis, HealthCheckResult } from "./logging_utils.js";
 
 type ToolSpec = { name: string; check_cmd: string; run_cmd: string; parser?: string };
 
@@ -27,6 +27,7 @@ class EvoTUI {
   private objective: string = "";
   private phase: string = "";
   private message: string = "";
+  private health?: HealthCheckResult;
   private subTasks: SubTask[] = [];
   private logs: string[] = [];
   private isTTY: boolean;
@@ -65,11 +66,12 @@ class EvoTUI {
     this.heartbeatTimer = setInterval(() => this.refreshComponents(), 1000);
   }
 
-  updateStatus(cycle: number, objective: string, phase: string, message: string) {
+  updateStatus(cycle: number, objective: string, phase: string, message: string, health?: HealthCheckResult) {
     this.cycle = cycle;
     this.objective = objective;
     this.phase = phase;
     this.message = message;
+    if (health) this.health = health;
     if (phase === "START") {
       this.subTasks = [];
     }
@@ -145,9 +147,19 @@ class EvoTUI {
     footerLines.push(chalk.gray("─".repeat(Math.min(50, width))));
     
     // Status bar (compact single line)
-    const statusLine = `${chalk.yellow("Cycle:")} ${chalk.white(this.cycle)}  ${chalk.gray("│")}  ${chalk.yellow("Phase:")} ${chalk.bold.green(this.phase)}  ${chalk.gray("│")}  ${chalk.cyan(this.message)}`;
+    let healthInfo = "";
+    if (this.health) {
+      const hColor = this.health.status === "healthy" ? chalk.green : (this.health.status === "degraded" ? chalk.yellow : chalk.red);
+      healthInfo = `${chalk.gray("│")} ${chalk.yellow("Health:")} ${hColor(this.health.status)} (${(this.health.success_rate * 100).toFixed(1)}%) `;
+    }
+    const statusLine = `${chalk.yellow("Cycle:")} ${chalk.white(this.cycle)}  ${chalk.gray("│")}  ${chalk.yellow("Phase:")} ${chalk.bold.green(this.phase)}  ${healthInfo}${chalk.gray("│")}  ${chalk.cyan(this.message)}`;
     footerLines.push(truncateToWidth(statusLine, width));
-    footerLines.push(chalk.gray("─".repeat(Math.min(50, width))));
+    
+    if (this.health && this.health.status !== "healthy" && this.health.suggestion) {
+      footerLines.push(chalk.yellow(`[Sug] ${this.health.suggestion}`));
+    } else {
+      footerLines.push(chalk.gray("─".repeat(Math.min(50, width))));
+    }
     
     // Progress tree
     footerLines.push(chalk.blue.bold("进度树 Progress Tree:"));
@@ -313,8 +325,13 @@ export class DaoEvolver {
     const cycleStarted = Date.now();
     const [objective, plan] = await this._nextObjective(runtime);
 
+    const getHealth = () => {
+      const healthHistory = (runtime.history || []).map((h: any) => ({ status: h.status, tool: h.tool }));
+      return checkEvolutionHealth(healthHistory);
+    };
+
     const updateUI = (phase: string, msg: string) => {
-      this.tui.updateStatus(cycle, objective, phase, msg);
+      this.tui.updateStatus(cycle, objective, phase, msg, getHealth());
     };
 
     updateUI("START", "开始新一轮进化");

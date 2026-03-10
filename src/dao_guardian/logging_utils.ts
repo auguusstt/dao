@@ -135,6 +135,7 @@ export interface HealthCheckResult {
   last_tool: string;
   status: "healthy" | "degraded" | "critical";
   message: string;
+  suggestion?: string;
 }
 
 /**
@@ -171,16 +172,20 @@ export function checkEvolutionHealth(history: Array<any>): HealthCheckResult {
   // Determine status
   let status: HealthCheckResult["status"];
   let message: string;
+  let suggestion: string | undefined;
   
   if (consecutiveFailures >= 5) {
     status = "critical";
     message = `系统健康度告警: 连续故障 ${consecutiveFailures} 次`;
+    suggestion = "考虑重置 evolution_plan.json 或切换更强大的模型工具";
   } else if (consecutiveFailures >= 3 || (total > 5 && successRate < 0.3)) {
     status = "degraded";
     message = `系统性能下降，健康度 ${ (successRate * 100).toFixed(1)}%`;
+    suggestion = "优先修复当前验证失败项，避免引入新功能";
   } else {
     status = "healthy";
     message = `系统运行正常，健康度 ${ (successRate * 100).toFixed(1)}%`;
+    suggestion = "继续按照计划推进最小化改进";
   }
   
   return {
@@ -192,7 +197,8 @@ export function checkEvolutionHealth(history: Array<any>): HealthCheckResult {
     consecutive_failures: consecutiveFailures,
     last_tool: lastTool,
     status,
-    message
+    message,
+    suggestion
   };
 }
 
