@@ -36,7 +36,6 @@ class EvoTUI {
 
   constructor() {
     this.isTTY = process.stdout.isTTY;
-    // No more full-screen TUI initialization
   }
 
   updateStatus(cycle: number, objective: string, phase: string, message: string, health?: HealthCheckResult) {
@@ -71,83 +70,78 @@ class EvoTUI {
 
   addLog(text: string) {
     this.clearFooter();
-    // Clean and print the log line
-    const clean = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).join("\n");
-    if (clean) {
-      process.stdout.write("  " + chalk.gray(clean) + "\n");
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      process.stdout.write("  " + line + "\n");
     }
     this.render();
   }
 
   appendLog(text: string) {
     this.clearFooter();
-    process.stdout.write(chalk.gray(text));
+    process.stdout.write(text);
     this.render();
   }
 
   private clearFooter() {
     if (!this.isTTY || this.lastFooterHeight <= 0) return;
-    // Move cursor up to the start of the footer and clear everything below
     process.stdout.write(`\x1b[${this.lastFooterHeight}A\x1b[J`);
     this.lastFooterHeight = 0;
   }
 
   private render() {
     if (!this.isTTY) return;
-    
-    // Always clear the previous footer before rendering a new one
     this.clearFooter();
 
     const width = process.stdout.columns || 80;
     const footerLines: string[] = [];
     
     footerLines.push(chalk.cyan.bold("\n═══ DAO Evolution Terminal ═══"));
-    footerLines.push(chalk.gray("─".repeat(Math.min(50, width))));
+    footerLines.push(chalk.white("─".repeat(Math.min(50, width))));
     
-    // Status bar (compact single line)
     let healthInfo = "";
     if (this.health) {
-      const hColor = this.health.status === "healthy" ? chalk.green : (this.health.status === "degraded" ? chalk.yellow : chalk.red);
-      healthInfo = `${chalk.gray("│")} ${chalk.yellow("Health:")} ${hColor(this.health.status)} (${(this.health.success_rate * 100).toFixed(1)}%) `;
+      const hColor = this.health.status === "healthy" ? chalk.greenBright : (this.health.status === "degraded" ? chalk.yellowBright : chalk.redBright);
+      healthInfo = `${chalk.white("│")} ${chalk.yellowBright("Health:")} ${hColor(this.health.status)} (${(this.health.success_rate * 100).toFixed(1)}%) `;
     }
-    const statusLine = `${chalk.yellow("Cycle:")} ${chalk.white(this.cycle)}  ${chalk.gray("│")}  ${chalk.yellow("Phase:")} ${chalk.bold.green(this.phase)}  ${healthInfo}${chalk.gray("│")}  ${chalk.cyan(this.message)}`;
+    const statusLine = `${chalk.yellowBright("Cycle:")} ${chalk.whiteBright(this.cycle)}  ${chalk.white("│")}  ${chalk.yellowBright("Phase:")} ${chalk.bold.greenBright(this.phase)}  ${healthInfo}${chalk.white("│")}  ${chalk.cyanBright(this.message)}`;
     footerLines.push(truncateToWidth(statusLine, width));
     
     if (this.health && this.health.status !== "healthy" && this.health.suggestion) {
-      footerLines.push(chalk.yellow(`[Sug] ${this.health.suggestion}`));
+      footerLines.push(chalk.yellowBright(`[Sug] ${this.health.suggestion}`));
     } else {
-      footerLines.push(chalk.gray("─".repeat(Math.min(50, width))));
+      footerLines.push(chalk.white("─".repeat(Math.min(50, width))));
     }
     
-    footerLines.push(chalk.blue.bold("进度树 Progress Tree:"));
+    footerLines.push(chalk.blueBright.bold("进度树 Progress Tree:"));
     const phases = [
       "START", "PLANNING", "ENSURE_HEAD", "CHECK_CLEAN", "CHECK_TOOLS",
-      "CREATE_WORKTREE", "RUN_TOOL", "VALIDATE", "COMMIT", "MERGE", "DONE"
+      "CREATE_WORKTREE", "RUN_TOOL", "SELF_HEAL", "VALIDATE", "COMMIT", "MERGE", "DONE"
     ];
     let foundCurrent = false;
     for (const p of phases) {
       const isCurrent = p === this.phase;
       if (isCurrent) {
-        footerLines.push(`${chalk.green(" ●")} ${chalk.bold.white(p)}`);
+        footerLines.push(`${chalk.greenBright(" ●")} ${chalk.bold.whiteBright(p)}`);
         foundCurrent = true;
       } else if (!foundCurrent) {
-        footerLines.push(`${chalk.green(" ✓")} ${chalk.gray(p)}`);
+        footerLines.push(`${chalk.greenBright(" ✓")} ${chalk.white(p)}`);
       } else {
-        footerLines.push(`${chalk.gray(" ○")} ${chalk.gray(p)}`);
+        footerLines.push(`${chalk.white(" ○")} ${chalk.white(p)}`);
       }
       const tasksInPhase = this.subTasks.filter(st => st.phase === p);
       for (const st of tasksInPhase) {
-        const icon = st.status === "success" ? chalk.green("✓") :
-                     st.status === "fail" ? chalk.red("✗") :
-                     st.status === "running" ? chalk.yellow("⟳") : chalk.gray("○");
+        const icon = st.status === "success" ? chalk.greenBright("✓") :
+                     st.status === "fail" ? chalk.redBright("✗") :
+                     st.status === "running" ? chalk.yellowBright("⟳") : chalk.white("○");
         let meta = "";
         if (st.status === "running" && st.startTime) {
           const elapsed = Math.floor((Date.now() - st.startTime) / 1000);
-          meta = chalk.yellow(` (${elapsed}s)`);
+          meta = chalk.yellowBright(` (${elapsed}s)`);
         } else if (st.reason) {
-          meta = chalk.red(` (${st.reason})`);
+          meta = chalk.redBright(` (${st.reason})`);
         }
-        footerLines.push(`   ${icon} ${chalk.gray(st.name)}${meta}`);
+        footerLines.push(`   ${icon} ${chalk.white(st.name)}${meta}`);
       }
     }
 
@@ -182,9 +176,15 @@ export class DaoEvolver {
   }
 
   _logIO(msg: string, detail: Record<string, any> = {}): void {
-    const text = `[IO] ${msg}`;
-    this.tui.addLog(chalk.gray(text));
+    this.tui.addLog(chalk.cyan(`[IO] ${msg}`));
     this._trace(0, "IO", msg, detail);
+  }
+
+  _logCommand(cmd: string, detail: Record<string, any> = {}): void {
+    const cwd = detail.cwd || this.root;
+    const msg = `[CMD] ${cmd} (in ${path.relative(this.root, cwd) || "."})`;
+    this.tui.addLog(chalk.blueBright(msg));
+    this._trace(0, "EXEC", msg, { cmd, ...detail });
   }
 
   _extractStreamText(obj: any): string | null {
@@ -202,30 +202,10 @@ export class DaoEvolver {
            null;
   }
 
-  _getParser(tool: ToolSpec): (line: string) => string | null {
-    const name = (tool.parser || "").toLowerCase();
-    const tryJson = (line: string) => {
-      try {
-        const obj = JSON.parse(line);
-        const t = this._extractStreamText(obj);
-        return (t && t.trim()) || null;
-      } catch {
-        return null;
-      }
-    };
-    if (name === "qwen" || name === "codebuddy" || name === "gemini") {
-      return tryJson;
-    }
-    if (tool.run_cmd.includes("stream-json")) {
-      return tryJson;
-    }
-    return (_line: string) => null;
-  }
-
   async _loadConfig(): Promise<EvolutionConfig> {
     const p = path.join(this.configDir, "evolution.json");
     try {
-      this._logIO("读取配置", { path: p });
+      this._logIO(`读取配置: ${p}`);
       const raw = await readJson<any>(p);
       return {
         objectives: raw.objectives || [],
@@ -245,23 +225,22 @@ export class DaoEvolver {
   }
 
   async bootstrap(): Promise<void> {
-    this._logIO("创建/检查状态目录", { path: this.stateDir });
+    this._logIO("初始化目录结构...");
     await ensureDir(this.stateDir);
-    this._logIO("创建/检查日志目录", { path: this.logsDir });
     await ensureDir(this.logsDir);
-    this._logIO("创建/检查工作树目录", { path: this.worktreesDir });
     await ensureDir(this.worktreesDir);
+    
     this.config = await this._loadConfig();
     const [globalObjective, agentsExcerpt] = await this._loadAgentsContext();
     this.globalObjective = globalObjective;
     this.agentsExcerpt = agentsExcerpt;
+    
     const runtimePath = path.join(this.stateDir, "evolution_runtime.json");
     try {
-      this._logIO("检查运行时文件是否存在", { path: runtimePath });
       await fs.access(runtimePath);
     } catch {
       const runtime = { cycle: 0, successful_promotions: 0, failed_cycles: 0, last_tool: "", history: [] as any[] };
-      this._logIO("初始化运行时文件", { path: runtimePath });
+      this._logIO(`创建新运行时文件: ${runtimePath}`);
       await writeJson(runtimePath, runtime);
     }
     await this._initPlanIfMissing();
@@ -271,14 +250,19 @@ export class DaoEvolver {
     await this.bootstrap();
     for (let i = 0; i < cycles; i++) {
       const cont = await this.runOnce();
-      if (!cont) break;
-      if (sleepSeconds > 0) await new Promise(r => setTimeout(r, sleepSeconds * 1000));
+      if (!cont) {
+        this.tui.addLog(chalk.redBright.bold("\n[STOP] 进化循环检测到关键故障，已主动停止。"));
+        break;
+      }
+      if (sleepSeconds > 0) {
+        this.tui.addLog(chalk.dim(`休眠 ${sleepSeconds} 秒待进入下一周期...`));
+        await new Promise(r => setTimeout(r, sleepSeconds * 1000));
+      }
     }
   }
 
   async runOnce(): Promise<boolean> {
     const runtimePath = path.join(this.stateDir, "evolution_runtime.json");
-    this._logIO("读取运行时文件", { path: runtimePath });
     const runtime = await readJson<any>(runtimePath);
     runtime.cycle = Number(runtime.cycle) + 1;
     const cycle = Number(runtime.cycle);
@@ -293,96 +277,124 @@ export class DaoEvolver {
       this.tui.updateStatus(cycle, obj, phase, msg, getHealth());
     };
 
+    // 检查是否连续验证失败，如果是，说明核心逻辑有问题，应停止
+    const history = runtime.history || [];
+    const recentValidations = history.slice(-5).filter((h: any) => h.reason?.includes("校验未通过"));
+    if (recentValidations.length >= 5) {
+      this.tui.addLog(chalk.redBright.bold("\n[CRITICAL] 连续 5 次验证失败，怀疑核心构建逻辑损坏，请人工修复。"));
+      return false;
+    }
+
     updateUI("START", "开始新一轮进化");
     await this._setLiveStatus(cycle, "START", "开始新一轮进化");
     await this._trace(cycle, "START", "开始新一轮进化", {});
 
-    updateUI("CHECK_TOOLS", "检测可用工具");
+    updateUI("CHECK_TOOLS", "检测工具链");
     const tools = await this._availableTools();
     if (tools.length === 0) {
-      const reason = "未检测到可用工具，请配置 config/evolution.json 中的 toolchain";
+      const reason = "未检测到可用工具，请检查 evolution.json";
       runtime.failed_cycles += 1;
       this._record(runtime, cycle, "FAIL", reason, 0.0, "");
       await writeJson(runtimePath, runtime);
       updateUI("FAIL", reason);
-      await this._trace(cycle, "FAIL", reason, { step: "CHECK_TOOLS" });
       return false;
     }
 
-    updateUI("PLANNING", "执行智能规划与反思");
+    updateUI("PLANNING", "生成本轮进化目标");
     const [objective, plan] = await this._nextObjective(runtime, tools);
     updateUI("PLANNING", "规划完成", objective);
 
-    updateUI("ENSURE_HEAD", "检查仓库 HEAD", objective);
+    updateUI("ENSURE_HEAD", "同步 Git 状态", objective);
     const [headOk, headReason] = await this._ensureGitHead();
     if (!headOk) {
       runtime.failed_cycles += 1;
       this._record(runtime, cycle, "FAIL", headReason, 0.0, "");
       await writeJson(runtimePath, runtime);
       updateUI("FAIL", headReason, objective);
-      await this._trace(cycle, "FAIL", headReason, { step: "ENSURE_HEAD" });
       return false;
     }
 
-    updateUI("CHECK_CLEAN", "检查主仓库是否干净", objective);
+    updateUI("CHECK_CLEAN", "检查工作区", objective);
     const [okClean, cleanReason] = await this._checkMainRepoClean();
     if (!okClean) {
       this._record(runtime, cycle, "SKIP", cleanReason, 0.0, "");
       await writeJson(runtimePath, runtime);
       updateUI("SKIP", cleanReason, objective);
-      await this._trace(cycle, "SKIP", cleanReason, { step: "CHECK_CLEAN" });
       return false;
     }
 
     const tool = tools[(cycle - 1) % tools.length];
     const branch = `auto/evo-${new Date().toISOString().replace(/[:.]/g, "-")}-${cycle}`;
-    // Persistent worker slot for LLM cache reuse
     const worktree = path.join(this.worktreesDir, "dao-1");
     
     await this._trace(cycle, "PLAN", "已选择工具与目标", {
       tool: tool.name,
       objective,
-      branch,
-      active_objective: plan.active_objective,
-      next_actions: plan.next_actions || []
+      branch
     });
 
-    updateUI("CREATE_WORKTREE", "创建隔离工作树");
+    updateUI("CREATE_WORKTREE", "创建隔离环境");
     const created = await this._createWorktree(branch, worktree);
     if (!created) {
       runtime.failed_cycles += 1;
-      this._record(runtime, cycle, "FAIL", "创建 worktree 失败", 0.0, tool.name);
+      this._record(runtime, cycle, "FAIL", "隔离环境创建失败", 0.0, tool.name);
       await writeJson(runtimePath, runtime);
-      updateUI("FAIL", "创建 worktree 失败");
-      await this._trace(cycle, "FAIL", "创建 worktree 失败", { tool: tool.name, branch });
+      updateUI("FAIL", "隔离环境创建失败");
       return false;
     }
-    try {
-      updateUI("RUN_TOOL", `调用工具: ${tool.name}`, objective);
-      const promptFile = await this._buildPromptFile(worktree, cycle, objective);
-      const [toolOk, toolOut] = await this._runTool(cycle, tool, worktree, promptFile);
-      await this._trace(cycle, "TOOL_RESULT", "工具调用结束", { tool: tool.name, tool_ok: toolOk, tool_output_preview: toolOut.slice(0, 120) });
 
-      updateUI("VALIDATE", "执行验证与护栏检查", objective);
-      const changedFiles = await this._changedFiles(worktree);
-      if (changedFiles.length > 0) {
-        this.tui.addLog(chalk.cyan.bold("Detected Changes:"));
-        for (const f of changedFiles) {
-          this.tui.addLog(chalk.cyan(`  - ${f}`));
+    try {
+      updateUI("RUN_TOOL", `执行智能进化: ${tool.name}`, objective);
+      const promptFile = await this._buildPromptFile(worktree, cycle, objective);
+      let [toolOk, toolOut] = await this._runTool(cycle, tool, worktree, promptFile);
+      
+      let [validateOk, validateDetail] = await this._validate(worktree);
+      
+      // === SELF-HEALING LOOP ===
+      if (!validateOk && toolOk) {
+        updateUI("SELF_HEAL", "验证失败，启动自我修复...", objective);
+        this.tui.addLog(chalk.yellowBright(`[Self-Heal] 检测到验证失败，正在将错误反馈给 Agent 修复...`));
+        this.tui.addLog(chalk.dim(validateDetail.slice(0, 300)));
+        
+        const healPrompt = `你的改动在验证阶段失败了。请修复以下错误：\n\n${validateDetail}\n\n只返回修复后的代码或针对错误的补丁。`;
+        const healFile = path.join(os.tmpdir(), `heal_prompt_${cycle}.txt`);
+        await fs.writeFile(healFile, healPrompt, "utf-8");
+        
+        // Give it one more turn to fix the mess
+        const [healOk, healOut] = await this._runTool(cycle, tool, worktree, healFile);
+        toolOk = healOk;
+        // Re-validate after heal
+        const [v2Ok, v2Detail] = await this._validate(worktree);
+        validateOk = v2Ok;
+        validateDetail = v2Detail;
+        
+        if (validateOk) {
+          this.tui.addLog(chalk.greenBright(`[Self-Heal] 自我修复成功！`));
+        } else {
+          this.tui.addLog(chalk.redBright(`[Self-Heal] 自我修复尝试后仍然失败。`));
         }
       }
+
+      updateUI("VALIDATE", "执行最终护栏检查", objective);
+      const changedFiles = await this._changedFiles(worktree);
+      if (changedFiles.length > 0) {
+        this.tui.addLog(chalk.greenBright.bold(`检测到文件变动 (${changedFiles.length} 个):`));
+        for (const f of changedFiles) this.tui.addLog(chalk.greenBright(`  - ${f}`));
+      }
+
       const [guardOk, guardReason] = this._guardChanges(changedFiles);
-      const [validateOk, validateDetail] = await this._validate(worktree);
+      if (!guardOk && changedFiles.length > 0) this.tui.addLog(chalk.redBright(`[GUARD] 护栏拦截: ${guardReason}`));
+
       const score = this._score(toolOk, changedFiles, guardOk, validateOk);
-      await this._trace(cycle, "EVAL", "完成评分", { score, changed: changedFiles.length, guard_ok: guardOk, validate_ok: validateOk });
+      await this._trace(cycle, "EVAL", "评分结果", { score, changed: changedFiles.length, guard_ok: guardOk, validate_ok: validateOk });
 
       if (toolOk && changedFiles.length && guardOk && validateOk && score >= this.config.min_score_promote) {
-        updateUI("COMMIT", "候选提交", objective);
+        updateUI("COMMIT", "准备提交", objective);
         const [commitOk, commitMsg] = await this._commitCandidate(worktree, cycle, objective, tool.name, score);
         let mergeOk = false;
         let mergeMsg = "未执行 merge";
         if (commitOk) {
-          updateUI("MERGE", "尝试快进合并到 main", objective);
+          updateUI("MERGE", "合并到主分支", objective);
           const r = await this._mergeBranch(branch);
           mergeOk = r[0];
           mergeMsg = r[1];
@@ -390,346 +402,164 @@ export class DaoEvolver {
         if (commitOk && mergeOk) {
           runtime.successful_promotions += 1;
           runtime.last_tool = tool.name;
-          const reason = `晋升成功: ${mergeMsg}`;
-          this._record(runtime, cycle, "PROMOTED", reason, score, tool.name, changedFiles.length);
-          updateUI("DONE", reason, objective);
-          await this._trace(cycle, "PROMOTED", reason, { tool: tool.name, score });
+          this._record(runtime, cycle, "PROMOTED", `晋升成功: ${mergeMsg}`, score, tool.name, changedFiles.length);
+          updateUI("DONE", "进化成功并合并", objective);
         } else {
           runtime.failed_cycles += 1;
-          const reason = `提交或合并失败: commit=${commitMsg}; merge=${mergeMsg}`;
-          this._record(runtime, cycle, "FAIL", reason, score, tool.name, changedFiles.length);
-          updateUI("FAIL", reason, objective);
-          await this._trace(cycle, "FAIL", reason, { tool: tool.name, score });
+          this._record(runtime, cycle, "FAIL", `提交或合并失败: ${mergeMsg}`, score, tool.name, changedFiles.length);
+          updateUI("FAIL", "提交过程出错", objective);
         }
       } else {
         runtime.failed_cycles += 1;
-        const reason = `未达晋升条件; tool_ok=${toolOk}; changed=${changedFiles.length}; guard_ok=${guardOk}; validate_ok=${validateOk}; guard_reason=${guardReason}`;
+        const reason = !changedFiles.length ? "无代码改动" : (!guardOk ? `护栏拒绝: ${guardReason}` : `校验未通过: ${validateDetail.slice(0, 100)}`);
         this._record(runtime, cycle, "FAIL", reason, score, tool.name, changedFiles.length);
-        updateUI("FAIL", reason, objective);
-        await this._trace(cycle, "FAIL", reason, { tool: tool.name, score, changed: changedFiles.length });
+        updateUI("FAIL", `进化未达标: ${reason.slice(0, 50)}`, objective);
       }
     } finally {
       await this._cleanupWorktree(worktree, branch);
-      const elapsed = Math.round((Date.now() - cycleStarted) / 1000);
-      await this._trace(cycle, "END", "本轮结束", { elapsed_sec: elapsed });
-      
-      // Perform health check for observability
-      const healthHistory = (runtime.history || []).map((h: any) => ({ status: h.status, tool: h.tool }));
-      const health = checkEvolutionHealth(healthHistory);
+      await this._trace(cycle, "END", "周期结束", {});
+      const health = checkEvolutionHealth(runtime.history || []);
       logHealthCheck(this.logger, health);
-      
-      this._logIO("写入运行时文件", { path: runtimePath });
       await writeJson(runtimePath, runtime);
     }
     return true;
   }
 
   async _checkMainRepoClean(): Promise<[boolean, string]> {
-    this._logCommand("git status --porcelain");
     const cp = spawnSync("git", ["status", "--porcelain"], { cwd: this.root, encoding: "utf-8" });
-    if (cp.status !== 0) return [false, cp.stderr?.trim() || "git status 失败"];
+    if (cp.status !== 0) return [false, "git status 执行失败"];
     if (cp.stdout.trim()) {
-      const msg = "主仓库存在未提交改动，将尝试带脏合并 (Dirty Merge Mode)";
-      this.tui.addLog(chalk.yellow(`[WARN] ${msg}`));
+      const msg = "工作区不洁，进入 Dirty Merge 模式";
+      this.tui.addLog(chalk.yellow(`[!] ${msg}`));
       return [true, msg];
     }
-    return [true, "ok"];
+    return [true, "clean"];
   }
 
   async _availableTools(): Promise<ToolSpec[]> {
     const out: ToolSpec[] = [];
-    const enabled = this.config.enabled_tools;
     for (const t of this.config.toolchain) {
-      if (enabled && !enabled.includes(t.name)) continue;
-      this._logCommand(`sh -c "${t.check_cmd}"`, { tool: t.name });
+      if (this.config.enabled_tools && !this.config.enabled_tools.includes(t.name)) continue;
       const cp = spawnSync("sh", ["-c", t.check_cmd], { cwd: this.root, encoding: "utf-8" });
       if ((cp.status ?? 1) === 0) out.push(t);
+      else this.tui.addLog(chalk.dim(`[Check] 工具 ${t.name} 不可用 (跳过)`));
     }
     return out;
   }
 
   async _ensureGitHead(): Promise<[boolean, string]> {
-    this._logCommand("git rev-parse --verify HEAD");
     const cp = spawnSync("git", ["rev-parse", "--verify", "HEAD"], { cwd: this.root, encoding: "utf-8" });
     if ((cp.status ?? 1) === 0) return [true, "ok"];
-    const addTargets = ["README.md", "config", "src", "pyproject.toml", "uv.lock"];
-    const existing = addTargets.filter(p => fs.access(path.join(this.root, p)).then(() => true).catch(() => false));
-    const resolved = await Promise.all(existing);
-    const present = addTargets.filter((_, i) => resolved[i]);
     
-    this._logCommand(`git add ${present.join(" ")}`);
-    const add = spawnSync("git", ["add", ...present], { cwd: this.root, encoding: "utf-8" });
-    if ((add.status ?? 1) !== 0) return [false, add.stderr?.trim() || "初始化 add 失败"];
-    
-    const commitMsg = "chore: bootstrap autonomous evolution core";
-    this._logCommand(`git commit -m "${commitMsg}"`);
-    const commit = spawnSync("git", ["commit", "-m", commitMsg], { cwd: this.root, encoding: "utf-8" });
-    if ((commit.status ?? 1) !== 0) {
-      const detail = `${commit.stdout}\n${commit.stderr}`.trim();
-      return [false, `初始化提交失败: ${detail.slice(0, 260)}`];
-    }
-    return [true, "bootstrap commit created"];
+    this.tui.addLog(chalk.yellow("[!] Git 未初始化，正在执行 Bootstrap 提交..."));
+    const addTargets = ["README.md", "config", "src", "package.json", "tsconfig.json"];
+    spawnSync("git", ["add", ...addTargets], { cwd: this.root });
+    const commit = spawnSync("git", ["commit", "-m", "chore: bootstrap dao-ts"], { cwd: this.root, encoding: "utf-8" });
+    return (commit.status ?? 1) === 0 ? [true, "bootstrapped"] : [false, "Git 初始化失败"];
   }
 
   async _createWorktree(branch: string, p: string): Promise<boolean> {
+    this._logIO(`同步隔离环境: ${p}`);
     try {
-      // Check if the worktree directory already exists
       await fs.access(p);
-      
-      // If it exists, sync it to current main immediately
-      // This is much faster than deleting and re-creating
-      this._logCommand("git merge --abort", { cwd: p });
       spawnSync("git", ["merge", "--abort"], { cwd: p });
-      this._logCommand("git reset --hard", { cwd: p });
-      spawnSync("git", ["reset", "--hard"], { cwd: p });
-      
-      // Checkout the new branch based on the LATEST main
-      this._logCommand(`git checkout -B ${branch} main`, { cwd: p });
+      spawnSync("git", ["reset", "--hard", "HEAD"], { cwd: p });
       const cp = spawnSync("git", ["checkout", "-B", branch, "main"], { cwd: p, encoding: "utf-8" });
       if (cp.status === 0) return true;
-      
-      // If somehow checkout -B failed (e.g. main not found), fallback to re-add
-      this._logCommand(`git worktree remove --force ${p}`);
       spawnSync("git", ["worktree", "remove", "--force", p], { cwd: this.root });
     } catch {}
 
-    // Create fresh worktree based on main
-    this._logCommand(`git worktree add -b ${branch} ${p} main`);
     const cp = spawnSync("git", ["worktree", "add", "-b", branch, p, "main"], { cwd: this.root, encoding: "utf-8" });
     return (cp.status ?? 1) === 0;
   }
 
   async _buildPromptFile(worktree: string, cycle: number, objective: string): Promise<string> {
-    const runtimePath = path.join(this.stateDir, "evolution_runtime.json");
-    this._logIO("读取运行时文件以构建提示", { path: runtimePath });
-    const runtime = await readJson<any>(runtimePath);
-
-    // Detect consecutive no-change failures for recovery
-    const history = runtime.history || [];
-    let consecutiveNoChange = 0;
-    for (let i = history.length - 1; i >= 0; i--) {
-      const h = history[i];
-      if (h.status === "FAIL" && h.reason?.includes("changed=0")) {
-        consecutiveNoChange++;
-      } else {
-        break;
-      }
-    }
-
-    // Get list of files in allowed edit roots to help LLM skip exploration
     let allowedFiles: string[] = [];
     for (const root of this.config.allowed_edit_roots) {
-      try {
-        const cmdArgs = [root, "-maxdepth", "2", "-not", "-path", "*/.*"];
-        this._logCommand(`find ${cmdArgs.join(" ")}`, { cwd: worktree });
-        const cp = spawnSync("find", cmdArgs, { cwd: worktree, encoding: "utf-8" });
-        if (cp.status === 0) {
-          allowedFiles = allowedFiles.concat(cp.stdout.split("\n").filter(Boolean));
-        }
-      } catch {}
+      const cp = spawnSync("find", [root, "-maxdepth", "2", "-not", "-path", "*/.*"], { cwd: worktree, encoding: "utf-8" });
+      if (cp.status === 0) allowedFiles = allowedFiles.concat(cp.stdout.split("\n").filter(Boolean));
     }
 
-    // Build recovery hint if stuck in no-change loop
-    let recoveryHint = "";
-    if (consecutiveNoChange >= 2) {
-      recoveryHint = `\n\n⚠️ 恢复模式：检测到连续 ${consecutiveNoChange} 轮无代码改动。请务必修改至少 1 个允许目录内的文件（如 src/dao_guardian/logging_utils.ts 或 src/common/fs.ts），添加日志、错误处理或改进验证逻辑。`;
-    }
-
-    const summary = {
-      cycle,
-      global_objective: this.globalObjective,
-      objective,
-      history_tail: (runtime.history || []).slice(-5),
-      allowed_files_preview: allowedFiles.slice(0, 50),
-      constraints: {
-        allowed_edit_roots: this.config.allowed_edit_roots,
-        protected_paths: this.config.protected_paths,
-        must_pass: this.config.validate_commands
-      },
-      recovery_hint: recoveryHint
-    };
-    const prompt =
-      "你是项目内的自主编码 agent。请在当前工作树做一次最小可验证改进。\n" +
-      "要求：\n" +
-      "1) 仅修改允许目录。\n" +
-      "2) 不可修改受保护路径。\n" +
-      "3) 改动后必须能通过验证命令。\n" +
-      "4) 优先提升稳定性、可观测性、可恢复性。" +
-      `${recoveryHint}\n\n` +
-      "全局进化章程（来自 AGENTS.md，必须遵守）：\n" +
-      `${this.agentsExcerpt}\n\n` +
-      `当前允许修改的目录及文件预览：\n${allowedFiles.join("\n")}\n\n` +
-      `上下文：\n${JSON.stringify(summary, null, 2)}\n`;
+    const prompt = `你是自主进化 Agent。目标：${objective}\n\n允许修改：\n${allowedFiles.join("\n")}\n\n限制：禁止触碰受保护目录 ${this.config.protected_paths.join(", ")}。改动必须通过校验。`;
     const tmpDir = path.join(os.tmpdir(), "dao_evo_prompts");
-    this._logIO("创建/检查临时提示目录", { path: tmpDir });
     await ensureDir(tmpDir);
     const file = path.join(tmpDir, `evo_prompt_cycle_${cycle}.txt`);
-    this._logIO("写入提示文件", { path: file });
     await fs.writeFile(file, prompt, "utf-8");
     return file;
   }
 
   async _runTool(cycle: number, tool: ToolSpec, worktree: string, promptFile: string): Promise<[boolean, string]> {
     let cmd = tool.run_cmd;
-    const replacements: Record<string, string> = {
-      worktree: JSON.stringify(worktree).slice(1, -1),
-      prompt_file: JSON.stringify(promptFile).slice(1, -1)
-    };
+    const replacements = { worktree, prompt_file: promptFile };
     for (const [k, v] of Object.entries(replacements)) cmd = cmd.split(`{${k}}`).join(v);
-    let promptText = "";
-    try {
-      this._logIO("读取提示文件内容", { path: promptFile });
-      promptText = await fs.readFile(promptFile, "utf-8");
-    } catch {
-      promptText = "";
-    }
-    const env = { 
-      ...(process as any).env, 
-      LC_ALL: "C", 
-      LANG: "C",
-      TERM: "dumb",
-      CI: "true",
-      PAGER: "cat",
-      DEBIAN_FRONTEND: "noninteractive",
-      GEMINI_NON_INTERACTIVE: "true",
-      NODE_ENV: "test"
-    };
+    
     this.tui.setSubTask(tool.name, "running");
-    
     this._logCommand(`sh -c "${cmd}"`, { cwd: worktree, tool: tool.name });
-    const proc = spawn("sh", ["-c", cmd], { 
-      cwd: worktree, 
-      env, 
-      stdio: ["ignore", "pipe", "pipe"] 
-    });
     
+    const proc = spawn("sh", ["-c", cmd], { cwd: worktree, stdio: ["ignore", "pipe", "pipe"] });
     const lines: string[] = [];
-    let timedOut = false;
-    let timeoutReason = "";
-    const started = Date.now();
-    const inactivityTimeoutMs = this.config.inactivity_timeout_sec * 1000;
-    const totalTimeoutMs = this.config.total_timeout_sec * 1000;
-    let lastOutputTime = Date.now();
-    const startTime = Date.now();
+    let lastOutput = Date.now();
 
     const timer = setInterval(() => {
-      const now = Date.now();
-      const inactiveElapsed = now - lastOutputTime;
-      const totalElapsed = now - startTime;
-
-      if (inactiveElapsed > inactivityTimeoutMs) {
-        timedOut = true;
-        timeoutReason = `Inactivity ${this.config.inactivity_timeout_sec}s`;
-        this.tui.addLog(chalk.red(`[Timeout] ${timeoutReason}`));
-        try { proc.kill(); } catch {}
-        clearInterval(timer);
-      } else if (totalElapsed > totalTimeoutMs) {
-        timedOut = true;
-        timeoutReason = `Total ${this.config.total_timeout_sec}s`;
-        this.tui.addLog(chalk.red(`[Timeout] ${timeoutReason}`));
+      if (Date.now() - lastOutput > this.config.inactivity_timeout_sec * 1000) {
+        this.tui.addLog(chalk.redBright(`[TIMEOUT] 工具 ${tool.name} 无响应已超过 ${this.config.inactivity_timeout_sec}s`));
         try { proc.kill(); } catch {}
         clearInterval(timer);
       }
-    }, 500);
+    }, 1000);
 
     const processStream = (data: Buffer, stream: "stdout" | "stderr") => {
-      lastOutputTime = Date.now();
+      lastOutput = Date.now();
       const raw = data.toString();
-
-      // Always log raw to tracer for full traceability
       this._toolStream(cycle, tool.name, stream, raw.trim());
-
-      // Split into lines
-      const parts = raw.split(/\r?\n/);
-      for (const part of parts) {
-        const trimmed = part.trim();
-        if (!trimmed) continue;
-
-        // Use human-readable formatter for TUI display
-        const formatted = this._formatToolLog(tool.name, tool.parser, stream, trimmed);
-        
-        lines.push(trimmed); // Keep raw for internal collection
+      for (const line of raw.split(/\r?\n/).filter(l => l.trim())) {
+        const formatted = this._formatToolLog(tool.name, tool.parser, stream, line);
         if (formatted) {
-          if (formatted.isDelta) {
-            this.tui.appendLog(formatted.text);
-          } else {
-            this.tui.addLog(formatted.text);
-          }
+          if (formatted.isDelta) this.tui.appendLog(formatted.text);
+          else this.tui.addLog(formatted.text);
         } else {
-          // FALLBACK: If not JSON, show it with stream prefix. 
-          // Use red for stderr, gray for stdout.
-          const prefix = stream === "stderr" ? chalk.red(`[${stream}] `) : chalk.gray(`[${stream}] `);
-          this.tui.addLog(prefix + chalk.dim(trimmed));
+          this.tui.addLog(chalk.white(line.trim()));
         }
+        lines.push(line);
       }
     };
 
     proc.stdout.on("data", (d: Buffer) => processStream(d, "stdout"));
     proc.stderr.on("data", (d: Buffer) => processStream(d, "stderr"));
 
-    this._toolStream(cycle, tool.name, "cmd", `bash -lc ${cmd}`);
-    if (promptText) this._toolStream(cycle, tool.name, "prompt", promptText.split(/\s+/).join(" ").slice(0, 220));
-    const rc: number = await new Promise(resolve => proc.on("close", (code: any) => resolve(Number(code ?? 1))));
+    const rc = await new Promise<number>(resolve => proc.on("close", (code: number | null) => resolve(code ?? 1)));
     clearInterval(timer);
     
-    const ok = (rc === 0 || lines.length > 10) && !timedOut;
-    const status = ok ? "success" : "fail";
-    const failReason = timedOut ? timeoutReason : (rc !== 0 ? `Exit ${rc}` : undefined);
-    this.tui.setSubTask(tool.name, status, failReason);
-    
-    // 记录工具失败详情以提升可观测性
+    const ok = (rc === 0 || lines.length > 5);
     if (!ok) {
-      let failureMode: ToolFailureAnalysis["failure_mode"] = "unknown";
-      if (timedOut) failureMode = "timeout";
-      else if (rc !== 0) failureMode = "validation_failed";
-      
-      logToolFailure(this.logger, {
-        timestamp: new Date().toISOString(),
-        cycle,
-        tool: tool.name,
-        failure_mode: failureMode,
-        output_preview: lines.slice(-5).join(" ").slice(0, 200),
-        changed_files: []
-      });
+      this.tui.addLog(chalk.redBright(`[FAIL] 工具 ${tool.name} 执行异常 (Exit: ${rc})`));
+      this.tui.addLog(chalk.white(`最近 5 行输出：\n${lines.slice(-5).join("\n")}`));
     }
-    
+    this.tui.setSubTask(tool.name, ok ? "success" : "fail", rc !== 0 ? `Exit ${rc}` : undefined);
     return [ok, lines.join("\n")];
   }
 
   async _changedFiles(worktree: string): Promise<string[]> {
-    this._logCommand("git status --porcelain", { cwd: worktree });
     const cp = spawnSync("git", ["status", "--porcelain"], { cwd: worktree, encoding: "utf-8" });
-    if ((cp.status ?? 1) !== 0) return [];
-    const files: string[] = [];
-    for (const line of cp.stdout.split("\n")) {
-      if (!line.trim()) continue;
-      files.push(line.slice(3).trim());
-    }
-    return files;
+    return cp.stdout.split("\n").filter((l: string) => l.trim()).map((l: string) => l.slice(3).trim());
   }
 
   _guardChanges(files: string[]): [boolean, string] {
-    if (!files.length) return [false, "无代码改动"];
+    if (!files.length) return [false, "无变动"];
     for (const f of files) {
-      const p = f.replace(/\\/g, "/");
-      if (this.config.protected_paths.some(prot => p === prot || p.startsWith(prot.replace(/\/$/, "") + "/"))) {
-        return [false, `触碰受保护路径: ${p}`];
-      }
-      if (!this.config.allowed_edit_roots.some(root => p === root || p.startsWith(root.replace(/\/$/, "") + "/"))) {
-        return [false, `改动不在允许目录: ${p}`];
-      }
+      if (this.config.protected_paths.some(p => f === p || f.startsWith(p + "/"))) return [false, `保护路径: ${f}`];
+      if (!this.config.allowed_edit_roots.some(r => f === r || f.startsWith(r + "/"))) return [false, `未授权目录: ${f}`];
     }
     return [true, "ok"];
   }
 
   async _validate(worktree: string): Promise<[boolean, string]> {
-    if (!this.config.validate_commands || this.config.validate_commands.length === 0) return [true, "未配置验证命令"];
     for (const cmd of this.config.validate_commands) {
-      this._logCommand(`bash -lc ${cmd}`, { cwd: worktree });
-      const cp = spawnSync("bash", ["-lc", cmd], { cwd: worktree, encoding: "utf-8" });
-      if ((cp.status ?? 1) !== 0) {
-        const err = `${cp.stdout}\n${cp.stderr}`.trim();
-        return [false, `验证失败: ${cmd}; ${err.slice(0, 300)}`];
+      this._logCommand(`验证执行: ${cmd}`);
+      const cp = spawnSync("sh", ["-c", cmd], { cwd: worktree, encoding: "utf-8" });
+      if (cp.status !== 0) {
+        const out = `${cp.stdout}\n${cp.stderr}`.trim();
+        return [false, `${cmd} 失败: ${out.slice(0, 1000)}`];
       }
     }
     return [true, "ok"];
@@ -741,65 +571,26 @@ export class DaoEvolver {
     if (changedFiles.length) s += 0.25;
     if (guardOk) s += 0.25;
     if (validateOk) s += 0.25;
-    return Number(s.toFixed(6));
+    return s;
   }
 
   async _commitCandidate(worktree: string, cycle: number, objective: string, toolName: string, score: number): Promise<[boolean, string]> {
-    this._logCommand("git add -A", { cwd: worktree });
-    const add = spawnSync("git", ["add", "-A"], { cwd: worktree, encoding: "utf-8" });
-    if ((add.status ?? 1) !== 0) return [false, add.stderr?.trim() || "git add 失败"];
-    const msg = `auto(evo): cycle=${cycle} tool=${toolName} score=${score.toFixed(3)} obj=${objective.slice(0, 40)}`;
-    this._logCommand(`git commit -m "${msg}"`, { cwd: worktree });
-    const commit = spawnSync("git", ["commit", "-m", msg], { cwd: worktree, encoding: "utf-8" });
-    if ((commit.status ?? 1) !== 0) {
-      const output = `${commit.stdout}\n${commit.stderr}`.trim().slice(0, 300);
-      return [false, output];
-    }
-    return [true, msg];
+    spawnSync("git", ["add", "-A"], { cwd: worktree });
+    const msg = `auto(evo): cycle=${cycle} tool=${toolName} score=${score.toFixed(2)} obj=${objective.slice(0, 30)}`;
+    const cp = spawnSync("git", ["commit", "-m", msg], { cwd: worktree, encoding: "utf-8" });
+    return cp.status === 0 ? [true, msg] : [false, cp.stderr || "commit 失败"];
   }
 
   async _mergeBranch(branch: string): Promise<[boolean, string]> {
-    this._logCommand(`git merge --ff-only ${branch}`);
-    let cp = spawnSync("git", ["merge", "--ff-only", branch], { cwd: this.root, encoding: "utf-8" });
-    
-    if (cp.status !== 0) {
-      this.tui.addLog(chalk.yellow("[INFO] 合并受阻，尝试使用 stash 保护现场并重新合并..."));
-      // Push current changes to stash
-      spawnSync("git", ["stash", "push", "-m", `auto-evo-stash-${Date.now()}`], { cwd: this.root });
-      
-      // Retry merge
-      cp = spawnSync("git", ["merge", "--ff-only", branch], { cwd: this.root, encoding: "utf-8" });
-      
-      // Always try to pop back
-      spawnSync("git", ["stash", "pop"], { cwd: this.root });
-    }
-
-    const out = `${cp.stdout}\n${cp.stderr}`.trim();
-    return [(cp.status ?? 1) === 0, out.slice(0, 300)];
+    this.tui.addLog(chalk.blueBright(`[MERGE] 正在合并分支 ${branch} 到 main...`));
+    const cp = spawnSync("git", ["merge", "--ff-only", branch], { cwd: this.root, encoding: "utf-8" });
+    return cp.status === 0 ? [true, "success"] : [false, "合并受阻"];
   }
 
   async _cleanupWorktree(worktree: string, branch: string): Promise<void> {
-    try {
-      // Soft cleanup: reset state but KEEP the directory and LLM caches
-      this._logCommand("git reset --hard HEAD", { cwd: worktree });
-      spawnSync("git", ["reset", "--hard", "HEAD"], { cwd: worktree });
-      this._logCommand("git clean -fd", { cwd: worktree });
-      spawnSync("git", ["clean", "-fd"], { cwd: worktree });
-      // Detach HEAD so the branch is no longer "in use" by this worktree
-      this._logCommand("git checkout --detach", { cwd: worktree });
-      spawnSync("git", ["checkout", "--detach"], { cwd: worktree });
-    } catch {}
-    
-    // Delete the temporary branch in main repo to keep it clean
-    this._logCommand(`git branch -D ${branch}`);
+    spawnSync("git", ["reset", "--hard", "HEAD"], { cwd: worktree });
+    spawnSync("git", ["clean", "-fd"], { cwd: worktree });
     spawnSync("git", ["branch", "-D", branch], { cwd: this.root });
-  }
-
-  _logCommand(cmd: string, detail: Record<string, any> = {}): void {
-    const cwd = detail.cwd || this.root;
-    const msg = `[CMD] ${cmd} (in ${path.relative(this.root, cwd) || "."})`;
-    this.tui.addLog(chalk.blue(msg));
-    this._trace(0, "EXEC", msg, { cmd, ...detail });
   }
 
   _record(runtime: any, cycle: number, status: string, reason: string, score: number, toolName: string, changedCount: number = 0): void {
@@ -807,359 +598,127 @@ export class DaoEvolver {
     runtime.history.push(event);
     this._retrospectAndUpdatePlan(event);
     appendJsonl(path.join(this.logsDir, "evolution_events.jsonl"), event);
-    this._emitConsoleLog("events", event);
-    
-    logSummary(this.logger, { 
-      cycle, 
-      status, 
-      score, 
-      tool: toolName, 
-      reason, 
-      changed_count: changedCount 
-    });
-  }
-
-  _planPath(): string {
-    return path.join(this.stateDir, "evolution_plan.json");
-  }
-
-  _defaultPlan(): any {
-    const objectives = this.config.objectives?.length ? [...this.config.objectives] : ["提升稳定性与可恢复性"];
-    return {
-      updated_at: nowIso(),
-      active_objective: objectives[0],
-      objective_index: 0,
-      objectives,
-      next_actions: ["先产出一个最小可验证改动，并确保通过 validate_commands"],
-      last_retrospective: {}
-    };
+    logSummary(this.logger, { cycle, status, score, tool: toolName, reason, changed_count: changedCount });
   }
 
   async _initPlanIfMissing(): Promise<void> {
-    const p = this._planPath();
     try {
-      this._logIO("检查计划文件是否存在", { path: p });
-      await fs.access(p);
+      await fs.access(this._planPath());
     } catch {
-      this._logIO("初始化计划文件", { path: p });
-      await writeJson(p, this._defaultPlan());
+      this._logIO("初始化进化计划...");
+      const plan = { updated_at: nowIso(), active_objective: this.config.objectives[0], objectives: this.config.objectives, next_actions: ["产出最小验证改动"] };
+      await writeJson(this._planPath(), plan);
     }
   }
 
-  async _readPlan(): Promise<any> {
-    const p = this._planPath();
-    try {
-      this._logIO("读取计划文件", { path: p });
-      await fs.access(p);
-      return await readJson<any>(p);
-    } catch (err) {
-      if ((err as any).code !== "ENOENT") {
-        this._logIO("计划文件异常，备份并重置", { path: p });
-        const backup = await backupFile(p);
-        logException(this.logger, err, `Plan file corrupted. Backed up to ${backup}. Resetting to default.`);
-      }
-      const plan = this._defaultPlan();
-      this._logIO("写入默认计划文件", { path: p });
-      await writeJson(p, plan);
-      return plan;
-    }
-  }
+  _planPath(): string { return path.join(this.stateDir, "evolution_plan.json"); }
+
+  async _readPlan(): Promise<any> { return readJson(this._planPath()); }
 
   async _writePlan(plan: any): Promise<void> {
-    const p = this._planPath();
-    try {
-      plan.updated_at = nowIso();
-      this._logIO("写入计划文件", { path: p });
-      await writeJson(p, plan);
-    } catch (err) {
-      logException(this.logger, err, `Failed to write plan to ${p}`);
-      throw err;
-    }
+    plan.updated_at = nowIso();
+    await writeJson(this._planPath(), plan);
   }
 
   async _nextObjective(runtime: any, tools: ToolSpec[]): Promise<[string, any]> {
     const plan = await this._readPlan();
     const history = runtime.history || [];
     const lastEvent = history.length ? history[history.length - 1] : null;
-
-    // 触发规划的条件：1.无活跃目标 2.刚成功晋升 3.连续 3 次失败
     const consecutiveFails = history.slice(-3).filter((h: any) => h.status === "FAIL").length === 3;
     const shouldPlan = !plan.active_objective || lastEvent?.status === "PROMOTED" || consecutiveFails;
 
     if (shouldPlan && tools.length > 0) {
-      this.tui.addLog(chalk.blue.bold("\n[Planner] 正在触发智能反思与规划..."));
-      // 优先选择 qwen 或 gemini 作为规划工具
-      const planTool = tools.find(t => t.name === "qwen" || t.name === "gemini") || tools[0];
-      
-      const res = await this.planner.plan(planTool);
+      const reason = !plan.active_objective ? "无活跃目标" : (lastEvent?.status === "PROMOTED" ? "晋升成功" : "连续失败");
+      this.tui.addLog(chalk.magentaBright.bold(`\n[Planner] 触发智能规划 (原因: ${reason})`));
+      const planTool = tools.find(t => ["qwen", "gemini"].includes(t.name)) || tools[0];
+      const res = await this.planner.plan(planTool, m => this.tui.addLog(m));
       if (res) {
         plan.active_objective = res.next_objective;
         plan.next_actions = res.next_actions;
-        this.tui.addLog(chalk.green(`[Planner] 新目标: ${res.next_objective}`));
-        if (res.thought) {
-          const thoughtPreview = res.thought.length > 150 ? res.thought.slice(0, 150) + "..." : res.thought;
-          this.tui.addLog(chalk.dim(`[Planner] 思考: ${thoughtPreview}`));
-        }
+        this.tui.addLog(chalk.greenBright.bold(`[Planner] 规划成功！`));
+        this.tui.addLog(chalk.greenBright.bold(`[Planner] 新目标: ${res.next_objective}`));
         await this._writePlan(plan);
       } else {
-        this.tui.addLog(chalk.yellow("[Planner] 规划失败，将使用备选方案"));
+        this.tui.addLog(chalk.redBright.bold("[Planner] 规划工具执行彻底失败，无法自动生成目标。"));
+        this.tui.addLog(chalk.yellowBright("[Fallback] 使用配置默认目标以尝试打破僵局..."));
       }
     }
 
-    let base = String(plan.active_objective || "").trim();
-    if (!base) {
-      const objectives = plan.objectives || this.config.objectives;
-      const idx = Number(plan.objective_index || 0) % Math.max(1, objectives.length);
-      base = objectives[idx];
-      plan.active_objective = base;
+    if (!plan.active_objective) {
+      plan.active_objective = this.config.objectives[0];
       await this._writePlan(plan);
     }
     
     const nextActions = (plan.next_actions || []).map((i: any) => String(i).trim()).filter(Boolean);
-    const objective = nextActions.length ? `${base}；本轮优先动作：${nextActions[0]}` : base;
+    const objective = nextActions.length ? `${plan.active_objective} (动作: ${nextActions[0]})` : plan.active_objective;
     return [objective, plan];
   }
 
   async _retrospectAndUpdatePlan(event: any): Promise<void> {
     const plan = await this._readPlan();
-    const objectives = plan.objectives || this.config.objectives;
-    let idx = Number(plan.objective_index || 0) % Math.max(1, objectives.length);
-    const reason = String(event.reason || "");
-    const status = String(event.status || "");
-    if (status === "PROMOTED") {
-      idx = (idx + 1) % Math.max(1, objectives.length);
-      plan.objective_index = idx;
-      plan.active_objective = objectives[idx];
-      plan.next_actions = ["基于当前目标做下一步最小可验证改进"];
+    if (event.status === "PROMOTED") {
+      plan.active_objective = ""; // Force re-plan
     } else {
-      if (reason.includes("无代码改动")) {
-        plan.next_actions = ["必须至少修改 1 个允许目录内文件", "改动优先落在日志/可观测性并保持最小范围"];
-      } else if (reason.includes("验证失败")) {
-        plan.next_actions = ["先本地执行并修复 validate_commands，再提交改动", "优先修复语法/依赖问题，避免扩展需求"];
-      } else if (reason.includes("触碰受保护路径") || reason.includes("改动不在允许目录")) {
-        plan.next_actions = ["严格限定改动到 allowed_edit_roots", "不要触碰 protected_paths"];
-      } else if (reason.includes("timeout")) {
-        plan.next_actions = ["缩小本轮范围，只做单点最小改动", "先输出可执行计划再改代码，降低超时概率"];
-      } else {
-        plan.next_actions = ["对齐最近失败原因，先做可通过验证的最小一步"];
-      }
+      plan.next_actions = [event.reason.slice(0, 50)];
     }
-    plan.last_retrospective = { cycle: event.cycle, status, score: event.score, reason: reason.slice(0, 300) };
     await this._writePlan(plan);
   }
 
   async _loadAgentsContext(): Promise<[string, string]> {
-    try {
-      this._logIO("读取 AGENTS.md", { path: this.agentsPath });
-      const text = await fs.readFile(this.agentsPath, "utf-8");
-      const m = text.match(/^总目标[：:]\s*(.+)$/m);
-      const globalObjective = m ? m[1].trim() : "按 AGENTS.md 约束推进长期自主进化目标";
-      let excerpt = text.slice(0, 1600).trim();
-      if (text.length > 1600) excerpt += "\n...(truncated)";
-      return [globalObjective, excerpt];
-    } catch {
-      const fallback = "持续提升系统稳定性、可观测性、可恢复性，并通过最小可验证改动推进。";
-      return [fallback, `(AGENTS.md 缺失，使用默认章程) ${fallback}`];
-    }
+    const text = await fs.readFile(this.agentsPath, "utf-8");
+    const m = text.match(/^总目标[：:]\s*(.+)$/m);
+    return [m ? m[1].trim() : "进化系统", text.slice(0, 1000)];
   }
 
   async _setLiveStatus(cycle: number, phase: string, message: string): Promise<void> {
-    const payload = { ts: nowIso(), cycle, phase, message };
-    this._logIO("写入实时状态文件", { path: path.join(this.stateDir, "evolution_live.json"), phase, message });
-    await writeJson(path.join(this.stateDir, "evolution_live.json"), payload);
+    await writeJson(path.join(this.stateDir, "evolution_live.json"), { cycle, phase, message, ts: nowIso() });
   }
 
   async _trace(cycle: number, phase: string, message: string, detail: Record<string, any>): Promise<void> {
-    const payload = { ts: nowIso(), cycle, phase, message, detail };
-    await appendJsonl(path.join(this.logsDir, "evolution_trace.jsonl"), payload);
-    this._emitConsoleLog("trace", payload);
+    await appendJsonl(path.join(this.logsDir, "evolution_trace.jsonl"), { ts: nowIso(), cycle, phase, message, detail });
   }
 
   _toolStream(cycle: number, tool: string, stream: string, text: string): void {
-    const payload = { ts: nowIso(), cycle, tool, stream, text };
-    appendJsonl(path.join(this.logsDir, "evolution_tool_stream.jsonl"), payload);
-    this._emitConsoleLog("tool_stream", payload);
+    appendJsonl(path.join(this.logsDir, "evolution_tool_stream.jsonl"), { ts: nowIso(), cycle, tool, stream, text });
   }
 
-  /**
-   * Extract human-readable summary from tool stream output
-   * Based on actual stream-json format from qwen/codebuddy/gemini CLI tools
-   * 
-   * Observed formats:
-   * 
-   * qwen/codebuddy (v0.12.0):
-   * - {"type":"system", ...} - system init info
-   * - {"type":"stream_event", "event":{"type":"message_start"| "content_block_delta"|...}} - streaming events
-   * - {"type":"assistant", "message":{"role":"assistant", "content":[...]}} - complete assistant message
-   * - {"type":"result", ...} - final result
-   * 
-   * gemini:
-   * - {"type":"init", ...} - session init
-   * - {"type":"message", "role":"user"|"assistant", "content":"...", "delta":true} - streaming messages
-   * - {"type":"result", "status":"success", ...} - final result
-   */
   _formatToolLog(toolName: string, toolParser: string | undefined, stream: string, text: string): { text: string; isDelta: boolean } | null {
     const name = (toolParser || toolName || "").toLowerCase();
-    const isKnownTool = name === "qwen" || name === "codebuddy" || name === "gemini";
-
-    if (isKnownTool) {
-      try {
-        const obj = JSON.parse(text);
-        const type = obj?.type as string;
-
-        // === GEMINI FORMAT ===
-        if (name === "gemini") {
-          if (type === "init") {
-            const model = obj?.model || "auto";
-            return { text: chalk.blue(`[system] Gemini initialized (model: ${model})`), isDelta: false };
-          }
-          
-          if (type === "message") {
-            const role = obj?.role || "unknown";
-            const content = String(obj?.content || "");
-            const isDelta = obj?.delta as boolean;
-            if (content) return { text: isDelta ? content : `[${role}] ${content}`, isDelta };
-            return null; // Silent for empty/envelope messages
-          }
-
-          if (type === "call") {
-            const call = obj?.call;
-            const callName = call?.function?.name || call?.name || "tool";
-            const args = call?.function?.arguments || call?.args || {};
-            const target = args.file_path || args.path || args.dest || "";
-            return { text: chalk.yellow.bold(`\n[CALL] ${callName}(${target})\n`), isDelta: false };
-          }
-          
-          if (type === "result") {
-            const status = obj?.status || "done";
-            return { text: chalk.green.bold(`\n[Result] ${status}\n`), isDelta: false };
-          }
-          return null;
-        }
-
-        // === QWEN/CODEBUDDY FORMAT ===
-        if (type === "system") {
-          const subtype = obj?.subtype || "";
-          const model = obj?.model || "";
-          if (subtype === "init") {
-            return { text: chalk.blue(`[system] ${name} initialized (model: ${model || "unknown"})`), isDelta: false };
-          }
-          return null; // Silent for technical system noise
-        }
-
-        if (type === "stream_event") {
-          const event = obj?.event;
-          const evType = event?.type as string;
-          if (evType === "content_block_delta") {
-            const delta = event?.delta;
-            if (delta?.type === "text_delta") return { text: delta.text || "", isDelta: true };
-            if (delta?.type === "thinking_delta") return { text: chalk.dim(delta.thinking || ""), isDelta: true };
-            if (delta?.type === "input_json_delta") return { text: chalk.yellow(delta.partial_json || ""), isDelta: true };
-            return null;
-          }
-          if (evType === "tool_call_delta") {
-            const call = event?.delta?.tool_call;
-            if (call?.name) return { text: chalk.yellow.bold(`\n[CALL] ${call.name}`), isDelta: false };
-            if (call?.arguments) return { text: chalk.yellow(call.arguments), isDelta: true };
-            return null;
-          }
-          // Silent for lifecycle noise
-          if (["message_start", "message_stop", "content_block_start", "content_block_stop"].includes(evType)) return null;
-          return null; 
-        }
-
-        if (type === "assistant") {
-          const content = obj?.message?.content as any[];
-          if (content) {
-            for (const block of content) {
-              if (block.type === "text" && block.text) return { text: block.text, isDelta: false };
-              if (block.type === "tool_use") {
-                const target = block.input?.file_path || block.input?.path || block.input?.absolute_path || "";
-                return { text: chalk.yellow.bold(`\n[TOOL] ${block.name}(${target})\n`), isDelta: false };
-              }
-            }
-          }
-          return null;
-        }
-
-        if (type === "result") {
-          const result = String(obj?.result || "ok");
-          const duration = obj?.duration_ms ? `${Math.round(obj.duration_ms)}ms` : "";
-          return { text: chalk.green.bold(`\n[Result] ${result}${duration ? ` (${duration})` : ""}\n`), isDelta: false };
-        }
-
-        // Handle tool result pass-back (often labeled as user)
-        if (obj?.role === "user" || type === "user") {
-          const content = this._extractStreamText(obj);
-          if (content && content.length < 300) return { text: chalk.dim(`[user] ${content}`), isDelta: false };
-          return null; // Hide giant technical tool results
-        }
-
-        const content = this._extractStreamText(obj);
-        if (content && content.trim()) return { text: content, isDelta: false };
+    try {
+      const obj = JSON.parse(text);
+      const type = obj?.type || obj?.subtype;
+      if (type === "system" || type === "init") return { text: chalk.cyan(`[system] ${name} ready`), isDelta: false };
+      
+      if (type === "stream_event") {
+        const delta = obj?.event?.delta;
+        if (delta?.type === "text_delta") return { text: delta.text, isDelta: true };
+        if (delta?.type === "thinking_delta") return { text: chalk.whiteBright(delta.thinking), isDelta: true };
         return null;
-
-      } catch {
-        // Not JSON
       }
+      
+      if (obj.type === "assistant") {
+        const txt = obj.message?.content?.find((c: any) => c.type === "text")?.text;
+        if (txt) return { text: chalk.white(txt), isDelta: false };
+        const toolUse = obj.message?.content?.find((c: any) => c.type === "tool_use");
+        if (toolUse) return { text: chalk.yellowBright.bold(`\n[TOOL] ${toolUse.name}(${toolUse.input?.path || ""})\n`), isDelta: false };
+      }
+
+      if (obj.type === "result") return { text: chalk.greenBright.bold(`\n[Result] ${obj.result}\n`), isDelta: false };
+      
+      const content = this._extractStreamText(obj);
+      return content ? { text: chalk.white(content), isDelta: false } : null;
+    } catch {
+      return { text: chalk.white(text), isDelta: false };
     }
-
-    const cleaned = text.split(/\r?\n/).join(" ").trim();
-    return cleaned ? { text: cleaned, isDelta: false } : null;
-  }
-
-  _emitConsoleLog(channel: string, payload: Record<string, any>): void {
-    if (process.stdout.isTTY) return; // Don't spam console if TUI is active
-    const text = JSON.stringify(payload);
-    console.log(`[evo-log:${channel}] ${text}`);
   }
 }
 
 export async function printStatus(root: string, tail: number = 8): Promise<void> {
-  const r = path.resolve(root);
-  const runtimeP = path.join(r, "state", "evolution_runtime.json");
-  const liveP = path.join(r, "state", "evolution_live.json");
-  const eventsP = path.join(r, "logs", "evolution_events.jsonl");
-  const traceP = path.join(r, "logs", "evolution_trace.jsonl");
-  const streamP = path.join(r, "logs", "evolution_tool_stream.jsonl");
-  const planP = path.join(r, "state", "evolution_plan.json");
   console.log("=== DAO Evolution Status ===");
   try {
-    const live = await readJson<any>(liveP);
-    console.log(`live: cycle=${live.cycle} phase=${live.phase} ts=${live.ts}`);
-    console.log(`live message: ${live.message}`);
+    const rt = await readJson<any>(path.join(root, "state", "evolution_runtime.json"));
+    console.log(`Runtime: Cycle ${rt.cycle}, Promoted ${rt.successful_promotions}, Failed ${rt.failed_cycles}`);
   } catch {
-    console.log("live: (no live status yet)");
-  }
-  try {
-    const rt = await readJson<any>(runtimeP);
-    console.log(`runtime: cycle=${rt.cycle} promoted=${rt.successful_promotions} failed=${rt.failed_cycles} last_tool=${rt.last_tool}`);
-    const hist = rt.history || [];
-    if (hist.length) {
-      const last = hist[hist.length - 1];
-      console.log(`last result: ${last.status} score=${last.score} tool=${last.tool} ts=${last.ts}`);
-      console.log(`last reason: ${last.reason}`);
-    }
-  } catch {
-    console.log("runtime: (not initialized)");
-  }
-  try {
-    const plan = await readJson<any>(planP);
-    console.log(`plan: index=${plan.objective_index} active=${plan.active_objective}`);
-    const nextActions = plan.next_actions || [];
-    if (nextActions.length) console.log(`plan next: ${nextActions[0]}`);
-  } catch {
-    console.log("plan: (not initialized)");
-  }
-  for (const p of [eventsP, traceP, streamP]) {
-    try {
-      const text = await fs.readFile(p, "utf-8");
-      const lines = text.split("\n").filter(Boolean);
-      const tailLines = lines.slice(-tail);
-      console.log(`--- tail ${path.basename(p)} (${tailLines.length} lines) ---`);
-      for (const line of tailLines) console.log(line);
-    } catch {
-      console.log(`${path.basename(p)}: (missing)`);
-    }
+    console.log("Runtime: not initialized");
   }
 }

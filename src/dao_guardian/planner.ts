@@ -26,7 +26,12 @@ export class DaoPlanner {
     this.stateDir = path.join(root, "state");
   }
 
-  async plan(tool: { name: string; run_cmd: string }): Promise<PlanResult | null> {
+  async plan(
+    tool: { name: string; run_cmd: string },
+    onLog?: (msg: string) => void
+  ): Promise<PlanResult | null> {
+    const log = (msg: string) => onLog ? onLog(msg) : console.log(msg);
+
     const agents = await this._safeRead(this.agentsPath);
     const roadmap = await this._safeRead(this.roadmapPath);
     const events = await this._getRecentEvents(10);
@@ -54,6 +59,8 @@ ${events.join("\n")}
 - next_objective: 下一轮的具体目标（字符串）。
 - next_actions: 优先级排序的动作列表（字符串数组）。
 - roadmap_update: (可选) 对 ROADMAP.md 的最新观察或待办建议。
+
+**注意：请直接输出 JSON，不要包含额外的 Markdown 代码块语法，除非工具要求。**
 `;
 
     const tmpPromptFile = path.join(this.stateDir, "last_planner_prompt.txt");
@@ -61,30 +68,66 @@ ${events.join("\n")}
 
     // 调用工具进行推断 (Inquiry Call)
     let cmd = tool.run_cmd;
+    // Increase turn limit specifically for planning if it looks like a turn-based CLI
+    if (cmd.includes("--max-session-turns")) {
+      cmd = cmd.replace(/--max-session-turns \d+/, "--max-session-turns 100");
+    }
+    
     const replacements: Record<string, string> = {
       prompt_file: JSON.stringify(tmpPromptFile).slice(1, -1)
     };
     for (const [k, v] of Object.entries(replacements)) cmd = cmd.split(`{${k}}`).join(v);
 
+    log(chalk.blueBright(`[Planner] 执行规划命令: ${cmd}`));
     const cp = spawnSync("sh", ["-c", cmd], { cwd: this.root, encoding: "utf-8" });
-    if (cp.status !== 0) return null;
+    
+    const output = cp.stdout || "";
+    const stderr = cp.stderr || "";
+
+    if (cp.status !== 0) {
+      log(chalk.red(`[Planner] 规划工具进程报错 (退出码: ${cp.status})`));
+      if (stderr) log(chalk.red(`[Planner] STDERR: ${stderr.trim()}`));
+      // Don't return null yet, try to see if it output valid JSON before crashing
+    }
+
+    if (!output.trim()) {
+      log(chalk.red("[Planner] 规划工具未返回任何标准输出"));
+      return null;
+    }
 
     try {
-      // 提取 JSON
-      const output = cp.stdout;
+      // 提取 JSON (Handle stream-json where multiple objects might exist)
+      const lines = output.split("\n").filter((line: string) => line.trim().startsWith("{"));
+      
+      for (const line of lines.reverse()) {
+        try {
+          const obj = JSON.parse(line);
+          if (obj.type === "assistant" && obj.message?.content) {
+            for (const block of obj.message.content) {
+              if (block.type === "text" && block.text) {
+                const jsonMatch = block.text.match(/\{[\s\S]*\}/);
+                if (jsonMatch) {
+                  const res = JSON.parse(jsonMatch[0]) as PlanResult;
+                  if (res.next_objective) return res;
+                }
+              }
+            }
+          }
+          if (obj.next_objective && obj.next_actions) return obj as PlanResult;
+        } catch { continue; }
+      }
+
+      // Fallback: full text search
       const jsonMatch = output.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const res = JSON.parse(jsonMatch[0]) as PlanResult;
-        
-        // 如果有路线图更新，尝试同步写回 ROADMAP.md
-        if (res.roadmap_update) {
-          await this._updateRoadmap(res.roadmap_update);
-        }
-        
-        return res;
+        if (res.next_objective) return res;
       }
+      
+      log(chalk.yellow("[Planner] 无法从结构化输出中解析 JSON，尝试展示原始响应以供调试..."));
+      log(chalk.white(`--- 工具输出开始 ---\n${output.slice(0, 2000)}\n--- 工具输出结束 ---`));
     } catch (e) {
-      console.error(chalk.red("[Planner] Failed to parse LLM response:"), e);
+      log(chalk.red(`[Planner] 解析异常: ${e instanceof Error ? e.message : String(e)}`));
     }
     return null;
   }
@@ -111,11 +154,9 @@ ${events.join("\n")}
     let current = await this._safeRead(this.roadmapPath);
     if (!current) return;
 
-    // 自动在“观察”或“历史反思”部分追加（这只是一个简单的策略，未来可进化）
     const now = new Date().toISOString().split("T")[0];
     const update = `\n- [ ] [Auto-Obs ${now}] ${newObservation}`;
     
-    // 寻找“核心观察”部分并插入
     if (current.includes("## 1. 核心观察")) {
       current = current.replace("## 1. 核心观察", `## 1. 核心观察${update}`);
       await fs.writeFile(this.roadmapPath, current, "utf-8");

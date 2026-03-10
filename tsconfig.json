@@ -25,40 +25,41 @@
       "commander/*": [
         "./.dao/ref/github.com/tj/commander.js/v14.0.1/*"
       ],
-      "jsonc-parser": [
-        "./.dao/ref/github.com/microsoft/node-jsonc-parser/v3.3.1"
-      ],
-      "jsonc-parser/*": [
-        "./.dao/ref/github.com/microsoft/node-jsonc-parser/v3.3.1/*"
-      ],
-      "pino": [
-        "./.dao/ref/github.com/pinojs/pino/v10.3.1"
-      ],
-      "pino/*": [
-        "./.dao/ref/github.com/pinojs/pino/v10.3.1/*"
-      ],
       "get-east-asian-width": [
         "./.dao/ref/github.com/sindresorhus/get-east-asian-width/v1.5.0"
       ],
       "get-east-asian-width/*": [
         "./.dao/ref/github.com/sindresorhus/get-east-asian-width/v1.5.0/*"
       ],
+      "jsonc-parser": [
+        "./.dao/ref/github.com/microsoft/node-jsonc-parser/v3.3.1"
+      ],
+      "jsonc-parser/*": [
+        "./.dao/ref/github.com/microsoft/node-jsonc-parser/v3.3.1/*"
+      ],
       "marked": [
         "./.dao/ref/github.com/markedjs/marked/v17.0.4"
       ],
       "marked/*": [
         "./.dao/ref/github.com/markedjs/marked/v17.0.4/*"
+      ],
+      "pino": [
+        "./.dao/ref/github.com/pinojs/pino/v10.3.1"
+      ],
+      "pino/*": [
+        "./.dao/ref/github.com/pinojs/pino/v10.3.1/*"
       ]
     }
   },
   "include": [
-    "src",
-    "*.ts",
-    "*.js"
+    "src"
   ],
   "exclude": [
     "node_modules",
     "dist",
-    "build"
+    "build",
+    ".dao",
+    "*.ts",
+    "*.js"
   ]
 }
