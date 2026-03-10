@@ -5,7 +5,7 @@ import os from "os";
 import readline from "readline";
 import chalk from "chalk";
 import { readJson, writeJson, appendJsonl, nowIso, ensureDir } from "../common/fs.js";
-import { setupLogger } from "./logging_utils.js";
+import { setupLogger, logSummary } from "./logging_utils.js";
 
 type ToolSpec = { name: string; check_cmd: string; run_cmd: string };
 
@@ -252,20 +252,20 @@ export class DaoEvolver {
           runtime.successful_promotions += 1;
           runtime.last_tool = tool.name;
           const reason = `晋升成功: ${mergeMsg}`;
-          this._record(runtime, cycle, "PROMOTED", reason, score, tool.name);
+          this._record(runtime, cycle, "PROMOTED", reason, score, tool.name, changedFiles.length);
           updateUI("DONE", reason);
           await this._trace(cycle, "PROMOTED", reason, { tool: tool.name, score });
         } else {
           runtime.failed_cycles += 1;
           const reason = `提交或合并失败: commit=${commitMsg}; merge=${mergeMsg}`;
-          this._record(runtime, cycle, "FAIL", reason, score, tool.name);
+          this._record(runtime, cycle, "FAIL", reason, score, tool.name, changedFiles.length);
           updateUI("FAIL", reason);
           await this._trace(cycle, "FAIL", reason, { tool: tool.name, score });
         }
       } else {
         runtime.failed_cycles += 1;
         const reason = `未达晋升条件; tool_ok=${toolOk}; changed=${changedFiles.length}; guard_ok=${guardOk}; validate_ok=${validateOk}; guard_reason=${guardReason}`;
-        this._record(runtime, cycle, "FAIL", reason, score, tool.name);
+        this._record(runtime, cycle, "FAIL", reason, score, tool.name, changedFiles.length);
         updateUI("FAIL", reason);
         await this._trace(cycle, "FAIL", reason, { tool: tool.name, score, changed: changedFiles.length });
       }
@@ -483,12 +483,21 @@ export class DaoEvolver {
     spawnSync("git", ["branch", "-D", branch], { cwd: this.root, encoding: "utf-8" });
   }
 
-  _record(runtime: any, cycle: number, status: string, reason: string, score: number, toolName: string): void {
-    const event = { ts: nowIso(), cycle, status, reason, score, tool: toolName };
+  _record(runtime: any, cycle: number, status: string, reason: string, score: number, toolName: string, changedCount: number = 0): void {
+    const event = { ts: nowIso(), cycle, status, reason, score, tool: toolName, changed_count: changedCount };
     runtime.history.push(event);
     this._retrospectAndUpdatePlan(event);
     appendJsonl(path.join(this.logsDir, "evolution_events.jsonl"), event);
     this._emitConsoleLog("events", event);
+    
+    logSummary(this.logger, { 
+      cycle, 
+      status, 
+      score, 
+      tool: toolName, 
+      reason, 
+      changed_count: changedCount 
+    });
   }
 
   _planPath(): string {
