@@ -497,7 +497,19 @@ export class DaoEvolver {
     const runtimePath = path.join(this.stateDir, "evolution_runtime.json");
     this._logIO("读取运行时文件以构建提示", { path: runtimePath });
     const runtime = await readJson<any>(runtimePath);
-    
+
+    // Detect consecutive no-change failures for recovery
+    const history = runtime.history || [];
+    let consecutiveNoChange = 0;
+    for (let i = history.length - 1; i >= 0; i--) {
+      const h = history[i];
+      if (h.status === "FAIL" && h.reason?.includes("changed=0")) {
+        consecutiveNoChange++;
+      } else {
+        break;
+      }
+    }
+
     // Get list of files in allowed edit roots to help LLM skip exploration
     let allowedFiles: string[] = [];
     for (const root of this.config.allowed_edit_roots) {
@@ -511,6 +523,12 @@ export class DaoEvolver {
       } catch {}
     }
 
+    // Build recovery hint if stuck in no-change loop
+    let recoveryHint = "";
+    if (consecutiveNoChange >= 2) {
+      recoveryHint = `\n\n⚠️ 恢复模式：检测到连续 ${consecutiveNoChange} 轮无代码改动。请务必修改至少 1 个允许目录内的文件（如 src/dao_guardian/logging_utils.ts 或 src/common/fs.ts），添加日志、错误处理或改进验证逻辑。`;
+    }
+
     const summary = {
       cycle,
       global_objective: this.globalObjective,
@@ -521,7 +539,8 @@ export class DaoEvolver {
         allowed_edit_roots: this.config.allowed_edit_roots,
         protected_paths: this.config.protected_paths,
         must_pass: this.config.validate_commands
-      }
+      },
+      recovery_hint: recoveryHint
     };
     const prompt =
       "你是项目内的自主编码 agent。请在当前工作树做一次最小可验证改进。\n" +
@@ -529,7 +548,8 @@ export class DaoEvolver {
       "1) 仅修改允许目录。\n" +
       "2) 不可修改受保护路径。\n" +
       "3) 改动后必须能通过验证命令。\n" +
-      "4) 优先提升稳定性、可观测性、可恢复性。\n\n" +
+      "4) 优先提升稳定性、可观测性、可恢复性。" +
+      `${recoveryHint}\n\n` +
       "全局进化章程（来自 AGENTS.md，必须遵守）：\n" +
       `${this.agentsExcerpt}\n\n` +
       `当前允许修改的目录及文件预览：\n${allowedFiles.join("\n")}\n\n` +
