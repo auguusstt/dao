@@ -277,7 +277,7 @@ export class DaoEvolver {
       this.tui.updateStatus(cycle, obj, phase, msg, getHealth());
     };
 
-    // 检查是否连续验证失败，如果是，说明核心逻辑有问题，应停止
+    // 检查是否连续验证失败
     const history = runtime.history || [];
     const recentValidations = history.slice(-5).filter((h: any) => h.reason?.includes("校验未通过"));
     if (recentValidations.length >= 5) {
@@ -354,25 +354,19 @@ export class DaoEvolver {
       if (!validateOk && toolOk) {
         updateUI("SELF_HEAL", "验证失败，启动自我修复...", objective);
         this.tui.addLog(chalk.yellowBright(`[Self-Heal] 检测到验证失败，正在将错误反馈给 Agent 修复...`));
-        this.tui.addLog(chalk.dim(validateDetail.slice(0, 300)));
         
         const healPrompt = `你的改动在验证阶段失败了。请修复以下错误：\n\n${validateDetail}\n\n只返回修复后的代码或针对错误的补丁。`;
         const healFile = path.join(os.tmpdir(), `heal_prompt_${cycle}.txt`);
         await fs.writeFile(healFile, healPrompt, "utf-8");
         
-        // Give it one more turn to fix the mess
         const [healOk, healOut] = await this._runTool(cycle, tool, worktree, healFile);
         toolOk = healOk;
-        // Re-validate after heal
         const [v2Ok, v2Detail] = await this._validate(worktree);
         validateOk = v2Ok;
         validateDetail = v2Detail;
         
-        if (validateOk) {
-          this.tui.addLog(chalk.greenBright(`[Self-Heal] 自我修复成功！`));
-        } else {
-          this.tui.addLog(chalk.redBright(`[Self-Heal] 自我修复尝试后仍然失败。`));
-        }
+        if (validateOk) this.tui.addLog(chalk.greenBright(`[Self-Heal] 自我修复成功！`));
+        else this.tui.addLog(chalk.redBright(`[Self-Heal] 自我修复后验证仍失败。`));
       }
 
       updateUI("VALIDATE", "执行最终护栏检查", objective);
@@ -406,7 +400,7 @@ export class DaoEvolver {
           updateUI("DONE", "进化成功并合并", objective);
         } else {
           runtime.failed_cycles += 1;
-          this._record(runtime, cycle, "FAIL", `提交或合并失败: ${mergeMsg}`, score, tool.name, changedFiles.length);
+          this._record(runtime, cycle, "FAIL", `合并失败: ${mergeMsg}`, score, tool.name, changedFiles.length);
           updateUI("FAIL", "提交过程出错", objective);
         }
       } else {
@@ -533,7 +527,6 @@ export class DaoEvolver {
     const ok = (rc === 0 || lines.length > 5);
     if (!ok) {
       this.tui.addLog(chalk.redBright(`[FAIL] 工具 ${tool.name} 执行异常 (Exit: ${rc})`));
-      this.tui.addLog(chalk.white(`最近 5 行输出：\n${lines.slice(-5).join("\n")}`));
     }
     this.tui.setSubTask(tool.name, ok ? "success" : "fail", rc !== 0 ? `Exit ${rc}` : undefined);
     return [ok, lines.join("\n")];
@@ -703,7 +696,24 @@ export class DaoEvolver {
         if (toolUse) return { text: chalk.yellowBright.bold(`\n[TOOL] ${toolUse.name}(${toolUse.input?.path || ""})\n`), isDelta: false };
       }
 
-      if (obj.type === "result") return { text: chalk.greenBright.bold(`\n[Result] ${obj.result}\n`), isDelta: false };
+      if (obj.type === "result") {
+        const result = obj.result || "done";
+        const turns = obj.num_turns || 0;
+        const usage = obj.usage || {};
+        const input = usage.input_tokens || 0;
+        const output = usage.output_tokens || 0;
+        
+        let stats = chalk.greenBright.bold(`\n[Result] ${result}`);
+        stats += chalk.white(`\n[Stats] Turns: ${turns} | Usage: ${input} in / ${output} out`);
+        
+        // Try to capture quota info from text if not in structured field
+        if (text.includes("quota")) {
+          const quotaMatch = text.match(/quota[^]*/i);
+          if (quotaMatch) stats += chalk.yellow(`\n[Quota] ${quotaMatch[0].split("\n")[0]}`);
+        }
+        
+        return { text: stats + "\n", isDelta: false };
+      }
       
       const content = this._extractStreamText(obj);
       return content ? { text: chalk.white(content), isDelta: false } : null;

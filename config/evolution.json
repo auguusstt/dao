@@ -17,7 +17,7 @@
     "src",
     "config"
   ],
-  "enabled_tools": ["qwen"],
+  "enabled_tools": ["codebuddy"],
   "toolchain": [
     {
       "name": "gemini",
@@ -34,7 +34,7 @@
     {
       "name": "codebuddy",
       "check_cmd": "command -v codebuddy >/dev/null 2>&1",
-      "run_cmd": "codebuddy --max-session-turns 100 --output-format stream-json --include-partial-messages -p \"$(cat {prompt_file})\" -y",
+      "run_cmd": "codebuddy --max-turns --output-format stream-json --include-partial-messages -p \"$(cat {prompt_file})\" -y",
       "parser": "codebuddy"
     }
   ],

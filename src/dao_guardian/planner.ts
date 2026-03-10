@@ -125,10 +125,6 @@ ${recentEvents.map(e => `   [Cycle ${e.cycle}] ${e.status}: ${e.reason || "ok"} 
 
     // 调用工具进行推断 (Inquiry Call)
     let cmd = tool.run_cmd;
-    // Increase turn limit specifically for planning if it looks like a turn-based CLI
-    if (cmd.includes("--max-session-turns")) {
-      cmd = cmd.replace(/--max-session-turns \d+/, "--max-session-turns 100");
-    }
     
     const replacements: Record<string, string> = {
       prompt_file: JSON.stringify(tmpPromptFile).slice(1, -1)
