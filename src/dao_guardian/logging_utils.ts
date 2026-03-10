@@ -120,3 +120,80 @@ export async function withErrorContext<T>(
     setGlobalCorrelationId(prevCorrId ?? "");
   }
 }
+
+/**
+ * Health check summary for evolution cycle monitoring.
+ * Tracks key metrics for observability and recovery analysis.
+ */
+export interface HealthCheckResult {
+  timestamp: string;
+  total_cycles: number;
+  successful_promotions: number;
+  failed_cycles: number;
+  success_rate: number;
+  consecutive_failures: number;
+  last_tool: string;
+  status: "healthy" | "degraded" | "critical";
+  message: string;
+}
+
+/**
+ * Calculate health status based on evolution metrics.
+ * Returns health check result for observability tracking.
+ */
+export function checkEvolutionHealth(history: Array<{ status: string; tool: string }>): HealthCheckResult {
+  const timestamp = new Date().toISOString();
+  const total = history.length;
+  const promoted = history.filter(h => h.status === "PROMOTED").length;
+  const failed = history.filter(h => h.status === "FAIL").length;
+  const successRate = total > 0 ? promoted / total : 0;
+  
+  // Count consecutive failures from the end
+  let consecutiveFailures = 0;
+  for (let i = history.length - 1; i >= 0; i--) {
+    if (history[i].status === "FAIL") {
+      consecutiveFailures++;
+    } else {
+      break;
+    }
+  }
+  
+  const lastTool = history.length > 0 ? history[history.length - 1].tool : "none";
+  
+  // Determine status
+  let status: HealthCheckResult["status"];
+  let message: string;
+  
+  if (consecutiveFailures >= 5) {
+    status = "critical";
+    message = `连续失败 ${consecutiveFailures} 次，需要人工介入`;
+  } else if (consecutiveFailures >= 3 || successRate < 0.3) {
+    status = "degraded";
+    message = `系统性能下降，成功率 ${ (successRate * 100).toFixed(1)}%`;
+  } else {
+    status = "healthy";
+    message = `运行正常，成功率 ${ (successRate * 100).toFixed(1)}%`;
+  }
+  
+  return {
+    timestamp,
+    total_cycles: total,
+    successful_promotions: promoted,
+    failed_cycles: failed,
+    success_rate: Number(successRate.toFixed(4)),
+    consecutive_failures: consecutiveFailures,
+    last_tool: lastTool,
+    status,
+    message
+  };
+}
+
+/**
+ * Log health check result for observability.
+ */
+export function logHealthCheck(logger: pino.Logger, health: HealthCheckResult): void {
+  const level = health.status === "healthy" ? "info" : 
+                health.status === "degraded" ? "warn" : "error";
+  const fn = (logger as any)[level] ?? logger.info.bind(logger);
+  fn.call(logger, health, `[HealthCheck] ${health.status.toUpperCase()}: ${health.message}`);
+}
