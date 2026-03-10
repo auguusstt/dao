@@ -3,7 +3,7 @@ import { promises as fs } from "fs";
 import { spawn, spawnSync } from "child_process";
 import os from "os";
 import chalk from "chalk";
-import { TUI, Text, ProcessTerminal, matchesKey, Key } from "@mariozechner/pi-tui";
+import { TUI, Text, ProcessTerminal, matchesKey, Key, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { readJson, writeJson, appendJsonl, nowIso, ensureDir, backupFile } from "../common/fs.js";
 import { setupLogger, logSummary, logException } from "./logging_utils.js";
 
@@ -59,6 +59,11 @@ class EvoTUI {
       this.tui.addChild(this.progressText);
       this.tui.addChild(this.logsText);
       this.tui.start();
+      this.header.setText(chalk.cyan.bold("DAO Evolution Terminal"));
+      this.cycleText.setText(`${chalk.yellow("Cycle:")} ${chalk.white(this.cycle)}`);
+      this.objectiveText.setText(`${chalk.yellow("Objective:")} ${chalk.white(this.objective)}`);
+      this.phaseText.setText(`${chalk.yellow("Phase:")} ${chalk.bold.green("INIT")} ${chalk.gray("│")} 加载配置中...`);
+      this.tui.requestRender(true);
       this.tui.addInputListener((data: string) => {
         if (matchesKey(data, Key.ctrl("c"))) {
           try { this.tui?.stop(); } catch {}
@@ -115,12 +120,13 @@ class EvoTUI {
 
   private refreshComponents() {
     if (!this.isTTY) return;
+    const width = this.terminal?.columns || process.stdout.columns || 80;
     this.header?.setText(chalk.cyan.bold("DAO Evolution Terminal"));
-    this.cycleText?.setText(`${chalk.yellow("Cycle:")} ${chalk.white(this.cycle)}`);
-    this.objectiveText?.setText(`${chalk.yellow("Objective:")} ${chalk.white(this.objective)}`);
-    this.phaseText?.setText(`${chalk.yellow("Phase:")} ${chalk.bold.green(this.phase)} ${chalk.gray("│")} ${this.message}`);
+    this.cycleText?.setText(truncateToWidth(`${chalk.yellow("Cycle:")} ${chalk.white(this.cycle)}`, width));
+    this.objectiveText?.setText(truncateToWidth(`${chalk.yellow("Objective:")} ${chalk.white(this.objective)}`, width));
+    this.phaseText?.setText(truncateToWidth(`${chalk.yellow("Phase:")} ${chalk.bold.green(this.phase)} ${chalk.gray("│")} ${this.message}`, width));
     const progressLines: string[] = [];
-    progressLines.push(chalk.blue.bold("进度树 Progress Tree:"));
+    progressLines.push(truncateToWidth(chalk.blue.bold("进度树 Progress Tree:"), width));
     const phases = [
       "START", "ENSURE_HEAD", "CHECK_CLEAN", "CHECK_TOOLS", 
       "CREATE_WORKTREE", "RUN_TOOL", "VALIDATE", "COMMIT", "MERGE", "DONE"
@@ -129,12 +135,12 @@ class EvoTUI {
     for (const p of phases) {
       const isCurrent = p === this.phase;
       if (isCurrent) {
-        progressLines.push(`${chalk.green(" ●")} ${chalk.bold.white(p)}`);
+        progressLines.push(truncateToWidth(`${chalk.green(" ●")} ${chalk.bold.white(p)}`, width));
         foundCurrent = true;
       } else if (!foundCurrent) {
-        progressLines.push(`${chalk.green(" ✓")} ${chalk.gray(p)}`);
+        progressLines.push(truncateToWidth(`${chalk.green(" ✓")} ${chalk.gray(p)}`, width));
       } else {
-        progressLines.push(`${chalk.gray(" ○")} ${chalk.gray(p)}`);
+        progressLines.push(truncateToWidth(`${chalk.gray(" ○")} ${chalk.gray(p)}`, width));
       }
       const tasksInPhase = this.subTasks.filter(st => st.phase === p);
       for (const st of tasksInPhase) {
@@ -148,16 +154,17 @@ class EvoTUI {
         } else if (st.reason) {
           meta = chalk.red(` (${st.reason})`);
         }
-        progressLines.push(`   ${icon} ${chalk.gray(st.name)}${meta}`);
+        progressLines.push(truncateToWidth(`   ${icon} ${chalk.gray(st.name)}${meta}`, width));
       }
     }
     this.progressText?.setText(progressLines.join("\n"));
     const logLines: string[] = [];
-    logLines.push(chalk.magenta.bold("实时输出 Live Tool Output:"));
+    logLines.push(truncateToWidth(chalk.magenta.bold("实时输出 Live Tool Output:"), width));
     for (const log of this.logs) {
-      logLines.push(chalk.gray("  " + log));
+      logLines.push(truncateToWidth(chalk.gray("  " + log), width));
     }
     this.logsText?.setText(logLines.join("\n"));
+    this.tui?.requestRender(true);
   }
 }
 
@@ -183,9 +190,16 @@ export class DaoEvolver {
     this.agentsPath = path.join(root, "AGENTS.md");
   }
 
+  _logIO(msg: string, detail: Record<string, any> = {}): void {
+    const text = `[IO] ${msg}`;
+    this.tui.addLog(chalk.gray(text));
+    this._trace(0, "IO", msg, detail);
+  }
+
   async _loadConfig(): Promise<EvolutionConfig> {
     const p = path.join(this.configDir, "evolution.json");
     try {
+      this._logIO("读取配置", { path: p });
       const raw = await readJson<any>(p);
       return {
         objectives: raw.objectives || [],
@@ -204,8 +218,11 @@ export class DaoEvolver {
   }
 
   async bootstrap(): Promise<void> {
+    this._logIO("创建/检查状态目录", { path: this.stateDir });
     await ensureDir(this.stateDir);
+    this._logIO("创建/检查日志目录", { path: this.logsDir });
     await ensureDir(this.logsDir);
+    this._logIO("创建/检查工作树目录", { path: this.worktreesDir });
     await ensureDir(this.worktreesDir);
     this.config = await this._loadConfig();
     const [globalObjective, agentsExcerpt] = await this._loadAgentsContext();
@@ -213,9 +230,11 @@ export class DaoEvolver {
     this.agentsExcerpt = agentsExcerpt;
     const runtimePath = path.join(this.stateDir, "evolution_runtime.json");
     try {
+      this._logIO("检查运行时文件是否存在", { path: runtimePath });
       await fs.access(runtimePath);
     } catch {
       const runtime = { cycle: 0, successful_promotions: 0, failed_cycles: 0, last_tool: "", history: [] as any[] };
+      this._logIO("初始化运行时文件", { path: runtimePath });
       await writeJson(runtimePath, runtime);
     }
     await this._initPlanIfMissing();
@@ -232,6 +251,7 @@ export class DaoEvolver {
 
   async runOnce(): Promise<boolean> {
     const runtimePath = path.join(this.stateDir, "evolution_runtime.json");
+    this._logIO("读取运行时文件", { path: runtimePath });
     const runtime = await readJson<any>(runtimePath);
     runtime.cycle = Number(runtime.cycle) + 1;
     const cycle = Number(runtime.cycle);
@@ -351,6 +371,7 @@ export class DaoEvolver {
       await this._cleanupWorktree(worktree, branch);
       const elapsed = Math.round((Date.now() - cycleStarted) / 1000);
       await this._trace(cycle, "END", "本轮结束", { elapsed_sec: elapsed });
+      this._logIO("写入运行时文件", { path: runtimePath });
       await writeJson(runtimePath, runtime);
     }
     return true;
@@ -426,7 +447,9 @@ export class DaoEvolver {
   }
 
   async _buildPromptFile(worktree: string, cycle: number, objective: string): Promise<string> {
-    const runtime = await readJson<any>(path.join(this.stateDir, "evolution_runtime.json"));
+    const runtimePath = path.join(this.stateDir, "evolution_runtime.json");
+    this._logIO("读取运行时文件以构建提示", { path: runtimePath });
+    const runtime = await readJson<any>(runtimePath);
     
     // Get list of files in allowed edit roots to help LLM skip exploration
     let allowedFiles: string[] = [];
@@ -465,8 +488,10 @@ export class DaoEvolver {
       `当前允许修改的目录及文件预览：\n${allowedFiles.join("\n")}\n\n` +
       `上下文：\n${JSON.stringify(summary, null, 2)}\n`;
     const tmpDir = path.join(os.tmpdir(), "dao_evo_prompts");
+    this._logIO("创建/检查临时提示目录", { path: tmpDir });
     await ensureDir(tmpDir);
     const file = path.join(tmpDir, `evo_prompt_cycle_${cycle}.txt`);
+    this._logIO("写入提示文件", { path: file });
     await fs.writeFile(file, prompt, "utf-8");
     return file;
   }
@@ -480,6 +505,7 @@ export class DaoEvolver {
     for (const [k, v] of Object.entries(replacements)) cmd = cmd.split(`{${k}}`).join(v);
     let promptText = "";
     try {
+      this._logIO("读取提示文件内容", { path: promptFile });
       promptText = await fs.readFile(promptFile, "utf-8");
     } catch {
       promptText = "";
@@ -699,8 +725,10 @@ export class DaoEvolver {
   async _initPlanIfMissing(): Promise<void> {
     const p = this._planPath();
     try {
+      this._logIO("检查计划文件是否存在", { path: p });
       await fs.access(p);
     } catch {
+      this._logIO("初始化计划文件", { path: p });
       await writeJson(p, this._defaultPlan());
     }
   }
@@ -708,14 +736,17 @@ export class DaoEvolver {
   async _readPlan(): Promise<any> {
     const p = this._planPath();
     try {
+      this._logIO("读取计划文件", { path: p });
       await fs.access(p);
       return await readJson<any>(p);
     } catch (err) {
       if ((err as any).code !== "ENOENT") {
+        this._logIO("计划文件异常，备份并重置", { path: p });
         const backup = await backupFile(p);
         logException(this.logger, err, `Plan file corrupted. Backed up to ${backup}. Resetting to default.`);
       }
       const plan = this._defaultPlan();
+      this._logIO("写入默认计划文件", { path: p });
       await writeJson(p, plan);
       return plan;
     }
@@ -725,6 +756,7 @@ export class DaoEvolver {
     const p = this._planPath();
     try {
       plan.updated_at = nowIso();
+      this._logIO("写入计划文件", { path: p });
       await writeJson(p, plan);
     } catch (err) {
       logException(this.logger, err, `Failed to write plan to ${p}`);
@@ -783,6 +815,7 @@ export class DaoEvolver {
 
   async _loadAgentsContext(): Promise<[string, string]> {
     try {
+      this._logIO("读取 AGENTS.md", { path: this.agentsPath });
       const text = await fs.readFile(this.agentsPath, "utf-8");
       const m = text.match(/^总目标[：:]\s*(.+)$/m);
       const globalObjective = m ? m[1].trim() : "按 AGENTS.md 约束推进长期自主进化目标";
@@ -797,6 +830,7 @@ export class DaoEvolver {
 
   async _setLiveStatus(cycle: number, phase: string, message: string): Promise<void> {
     const payload = { ts: nowIso(), cycle, phase, message };
+    this._logIO("写入实时状态文件", { path: path.join(this.stateDir, "evolution_live.json"), phase, message });
     await writeJson(path.join(this.stateDir, "evolution_live.json"), payload);
   }
 
