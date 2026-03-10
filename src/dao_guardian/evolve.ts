@@ -73,12 +73,13 @@ export class DaoEvolver {
   async run(cycles: number, sleepSeconds: number): Promise<void> {
     await this.bootstrap();
     for (let i = 0; i < cycles; i++) {
-      await this.runOnce();
+      const cont = await this.runOnce();
+      if (!cont) break;
       if (sleepSeconds > 0) await new Promise(r => setTimeout(r, sleepSeconds * 1000));
     }
   }
 
-  async runOnce(): Promise<void> {
+  async runOnce(): Promise<boolean> {
     const runtimePath = path.join(this.stateDir, "evolution_runtime.json");
     const runtime = await readJson<any>(runtimePath);
     runtime.cycle = Number(runtime.cycle) + 1;
@@ -94,7 +95,7 @@ export class DaoEvolver {
       await writeJson(runtimePath, runtime);
       await this._setLiveStatus(cycle, "FAIL", headReason);
       await this._trace(cycle, "FAIL", headReason, { step: "ENSURE_HEAD" });
-      return;
+      return false;
     }
     await this._setLiveStatus(cycle, "CHECK_CLEAN", "检查主仓库是否干净");
     const [okClean, cleanReason] = await this._checkMainRepoClean();
@@ -103,7 +104,7 @@ export class DaoEvolver {
       await writeJson(runtimePath, runtime);
       await this._setLiveStatus(cycle, "SKIP", cleanReason);
       await this._trace(cycle, "SKIP", cleanReason, { step: "CHECK_CLEAN" });
-      return;
+      return false;
     }
     await this._setLiveStatus(cycle, "CHECK_TOOLS", "检测可用工具");
     const tools = await this._availableTools();
@@ -114,7 +115,7 @@ export class DaoEvolver {
       await writeJson(runtimePath, runtime);
       await this._setLiveStatus(cycle, "FAIL", reason);
       await this._trace(cycle, "FAIL", reason, { step: "CHECK_TOOLS" });
-      return;
+      return false;
     }
     const tool = tools[(cycle - 1) % tools.length];
     const [objective, plan] = await this._nextObjective(runtime);
@@ -135,7 +136,7 @@ export class DaoEvolver {
       await writeJson(runtimePath, runtime);
       await this._setLiveStatus(cycle, "FAIL", "创建 worktree 失败");
       await this._trace(cycle, "FAIL", "创建 worktree 失败", { tool: tool.name, branch });
-      return;
+      return false;
     }
     try {
       await this._setLiveStatus(cycle, "BUILD_PROMPT", "生成本轮提示词");
@@ -191,6 +192,7 @@ export class DaoEvolver {
       await this._trace(cycle, "END", "本轮结束", { elapsed_sec: elapsed });
       await writeJson(runtimePath, runtime);
     }
+    return true;
   }
 
   async _checkMainRepoClean(): Promise<[boolean, string]> {
@@ -267,7 +269,7 @@ export class DaoEvolver {
       worktree: JSON.stringify(worktree).slice(1, -1),
       prompt_file: JSON.stringify(promptFile).slice(1, -1)
     };
-    for (const [k, v] of Object.entries(replacements)) cmd = cmd.replace(`{${k}}`, v);
+    for (const [k, v] of Object.entries(replacements)) cmd = cmd.split(`{${k}}`).join(v);
     let promptText = "";
     try {
       promptText = await fs.readFile(promptFile, "utf-8");

@@ -20,7 +20,7 @@
     {
       "name": "selfpatch",
       "check_cmd": "command -v npx >/dev/null 2>&1",
-      "run_cmd": "npx tsx {worktree}/../src/dao_guardian/self_patch.ts --worktree {worktree}"
+      "run_cmd": "npx tsx ../../src/dao_guardian/self_patch.ts --worktree {worktree}"
     }
   ],
   "min_score_promote": 1.0,
