@@ -6,7 +6,7 @@ export async function ensureDir(p: string): Promise<void> {
   await fs.mkdir(p, { recursive: true });
 }
 
-export async function readJson<T = any>(p: string): Promise<T> {
+export async function readJson<T = unknown>(p: string): Promise<T> {
   const text = await fs.readFile(p, "utf-8");
   const data = parse(text);
   if (data === undefined) {
@@ -15,7 +15,7 @@ export async function readJson<T = any>(p: string): Promise<T> {
   return data as T;
 }
 
-export async function writeJson(p: string, obj: any): Promise<void> {
+export async function writeJson(p: string, obj: unknown): Promise<void> {
   const text = JSON.stringify(obj, null, 2);
   const dir = path.dirname(p);
   await ensureDir(dir);
@@ -24,12 +24,16 @@ export async function writeJson(p: string, obj: any): Promise<void> {
     await fs.writeFile(tmp, text, "utf-8");
     await fs.rename(tmp, p);
   } catch (err) {
-    try { await fs.unlink(tmp); } catch {}
+    try {
+      await fs.unlink(tmp);
+    } catch {
+      // Ignore cleanup error
+    }
     throw err;
   }
 }
 
-export async function appendJsonl(p: string, obj: any): Promise<void> {
+export async function appendJsonl(p: string, obj: unknown): Promise<void> {
   const line = JSON.stringify(obj) + "\n";
   await ensureDir(path.dirname(p));
   await fs.appendFile(p, line, "utf-8");

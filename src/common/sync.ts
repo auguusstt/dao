@@ -27,7 +27,7 @@ try {
   if (fs.existsSync(METADATA_CACHE_PATH)) {
     metadataCache = JSON.parse(fs.readFileSync(METADATA_CACHE_PATH, "utf-8"));
   }
-} catch (e) {
+} catch ( _e) {
   // 忽略缓存读取错误
 }
 
@@ -69,7 +69,7 @@ function parseRepoUrl(url: string): RepoInfo | null {
     const host = urlObj.host;
     const parts = urlObj.pathname.split("/").filter(Boolean);
     if (parts.length >= 2) return { host, owner: parts[0] as string, repo: parts[1] as string };
-  } catch (e) {
+  } catch ( _e) {
     // 忽略解析错误
   }
   return null;
@@ -91,7 +91,7 @@ function getBestTag(repoUrl: string, version: string): string | null {
     for (const cand of candidates) {
       if (tags.includes(cand)) return cand;
     }
-  } catch (e) {
+  } catch ( _e) {
     // 忽略 git ls-remote 错误
   }
   return null;
@@ -137,7 +137,7 @@ async function processPackage(
         repoUrl = execSync(`npm view ${name} repository.url`, { stdio: "pipe" }).toString().trim();
         try {
             subDir = execSync(`npm view ${name} repository.directory`, { stdio: "pipe" }).toString().trim();
-        } catch(e) {
+        } catch( _e) {
             // 忽略 directory 不存在的错误
         }
         metadataCache[name] = { repoUrl, subDir, lastVersion: version };
@@ -196,7 +196,7 @@ async function processPackage(
 
     try {
       fs.rmSync(projectRepoLink, { recursive: true, force: true });
-    } catch (e) {
+    } catch ( _e) {
         // 忽略删除失败
     }
 
@@ -211,8 +211,8 @@ async function processPackage(
         relativePath: subDir ? `${relativeRepoPath}/${subDir}` : relativeRepoPath,
         absolutePath: subDir ? path.join(finalGlobalPath, subDir) : finalGlobalPath
     };
-  } catch (err: any) {
-    log.error(`[${name}] 同步失败: ${err.message}`);
+  } catch (err: unknown) {
+    log.error(`[${name}] 同步失败: ${err instanceof Error ? err.message : String(err)}`);
     return null;
   }
 }
@@ -222,7 +222,7 @@ async function processPackage(
  */
 interface PackageJson {
   dependencies?: Record<string, string>;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export async function syncDependencies(): Promise<void> {
@@ -240,7 +240,7 @@ export async function syncDependencies(): Promise<void> {
   if (fs.existsSync(projectConfigPath)) {
     try {
       projectConfig = JSON.parse(fs.readFileSync(projectConfigPath, "utf-8"));
-    } catch (e) {
+    } catch ( _e) {
       log.warn(`无法解析项目配置: ${projectConfigPath}`);
     }
   }

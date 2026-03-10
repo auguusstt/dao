@@ -7,6 +7,8 @@
 ## 1. 核心观察 (Current Observations)
 - [x] 观察到 `DaoEvolver` 的 `_nextObjective` 逻辑过于机械化（轮询列表），无法根据实际失败原因动态调整。
 - [x] 发现 `self_patch` 在连续失败时缺乏“跳出死循环”的元认知能力。
+- [x] 实现了 `npm run sync` 功能，支持从 GitHub 同步依赖源码，提升 AI 查阅文档和代码的深度。
+- [x] 建立了 `dao` 全局命令（通过 `bin/dao`），统一了进化循环的入口。
 - [ ] 现有日志 (`evolution_events.jsonl`) 虽然详尽，但缺乏高层语义总结，不便于 Planner 快速理解现状。
 
 ## 2. 进化待办清单 (Backlog)

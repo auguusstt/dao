@@ -11,7 +11,9 @@
     "start:evolver": "tsx src/dao_guardian/cli.ts",
     "start:guardian": "tsx src/dao_guardian/cli.ts predict",
     "status": "tsx src/dao_guardian/cli.ts status",
-    "sync": "tsx src/tools/sync_cli.ts"
+    "sync": "tsx src/tools/sync_cli.ts",
+    "lint": "eslint src",
+    "test": "vitest run"
   },
   "dependencies": {
     "@mariozechner/pi-tui": "^0.57.1",

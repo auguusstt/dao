@@ -21,4 +21,6 @@ state/
 logs/
 data/
 
-.dao/ref
+# DAO ref
+.dao/ref/
+.dao/registry-cache.json
