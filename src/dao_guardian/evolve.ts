@@ -20,11 +20,14 @@ type EvolutionConfig = {
   total_timeout_sec: number;
 };
 
+type SubTask = { name: string; status: "pending" | "running" | "success" | "fail"; reason?: string };
+
 class EvoTUI {
   private cycle: number = 0;
   private objective: string = "";
   private phase: string = "";
   private message: string = "";
+  private subTasks: SubTask[] = [];
   private logs: string[] = [];
   private readonly maxLogs = 10;
   private isTTY: boolean;
@@ -38,6 +41,18 @@ class EvoTUI {
     this.objective = objective;
     this.phase = phase;
     this.message = message;
+    if (phase === "START") this.subTasks = [];
+    this.render();
+  }
+
+  setSubTask(name: string, status: SubTask["status"], reason?: string) {
+    const existing = this.subTasks.find(t => t.name === name);
+    if (existing) {
+      existing.status = status;
+      existing.reason = reason;
+    } else {
+      this.subTasks.push({ name, status, reason });
+    }
     this.render();
   }
 
@@ -51,24 +66,32 @@ class EvoTUI {
 
   render() {
     if (!this.isTTY) {
-      console.log(`[Cycle ${this.cycle}] [${this.phase}] ${this.message}`);
-      return;
+      return; // Suppress all console output in non-TTY to keep it clean for logs
     }
 
     // Move cursor to top and clear screen below
     process.stdout.write("\x1b[H\x1b[J");
 
-    console.log(chalk.cyan.bold("=== DAO Evolution Terminal ==="));
-    console.log(`${chalk.yellow("Cycle:")} ${this.cycle}`);
-    console.log(`${chalk.yellow("Objective:")} ${this.objective}`);
-    console.log(`${chalk.yellow("Status:")} ${chalk.green(this.phase)} - ${this.message}`);
-    console.log("");
-    console.log(chalk.blue.bold("--- Progress Tree ---"));
+    const width = process.stdout.columns || 80;
+    const line = "━".repeat(width);
+
+    console.log(chalk.cyan.bold("┏" + "━".repeat(width - 2) + "┓"));
+    console.log(chalk.cyan.bold("┃") + chalk.white.bold(" DAO Evolution Terminal ".padStart((width + 22) / 2).padEnd(width - 2)) + chalk.cyan.bold("┃"));
+    console.log(chalk.cyan.bold("┗" + "━".repeat(width - 2) + "┛"));
+    
+    console.log(`${chalk.yellow("Cycle:")} ${chalk.white(this.cycle)}`);
+    console.log(`${chalk.yellow("Objective:")} ${chalk.white(this.objective)}`);
+    console.log(`${chalk.yellow("Phase:")} ${chalk.bold.green(this.phase)} ${chalk.gray("│")} ${this.message}`);
+    console.log(chalk.gray(line));
+    
+    console.log(chalk.blue.bold("进度树 Progress Tree:"));
     this.renderTree();
-    console.log("");
-    console.log(chalk.magenta.bold("--- Tool Output (Last 10 Lines) ---"));
+    
+    console.log(chalk.gray(line));
+    console.log(chalk.magenta.bold("工具输出 Tool Output:"));
     for (const log of this.logs) {
-      process.stdout.write(chalk.gray(log.slice(0, process.stdout.columns - 5)) + "\n");
+      const cleanLog = log.replace(/\r?\n|\r/g, " ");
+      process.stdout.write(chalk.gray("  " + cleanLog.slice(0, width - 4)) + "\n");
     }
   }
 
@@ -79,9 +102,18 @@ class EvoTUI {
     ];
     let foundCurrent = false;
     for (const p of phases) {
-      if (p === this.phase) {
-        console.log(`${chalk.green(" ●")} ${chalk.bold(p)} <-- Current`);
+      const isCurrent = p === this.phase;
+      if (isCurrent) {
+        console.log(`${chalk.green(" ●")} ${chalk.bold.white(p)}`);
         foundCurrent = true;
+        // Render subtasks for current phase if any
+        for (const st of this.subTasks) {
+          const icon = st.status === "success" ? chalk.green("✓") : 
+                       st.status === "fail" ? chalk.red("✗") : 
+                       st.status === "running" ? chalk.yellow("⟳") : chalk.gray("○");
+          const reason = st.reason ? chalk.red(` (${st.reason})`) : "";
+          console.log(`   ${icon} ${chalk.gray(st.name)}${reason}`);
+        }
       } else if (!foundCurrent) {
         console.log(`${chalk.green(" ✓")} ${chalk.gray(p)}`);
       } else {
@@ -360,9 +392,11 @@ export class DaoEvolver {
       promptText = "";
     }
     const env = { ...(process as any).env, LC_ALL: "C", LANG: "C" };
+    this.tui.setSubTask(tool.name, "running");
     const proc = spawn("bash", ["-lc", cmd], { cwd: worktree, env });
     const lines: string[] = [];
     let timedOut = false;
+    let timeoutReason = "";
     const started = Date.now();
     const inactivityTimeoutMs = this.config.inactivity_timeout_sec * 1000;
     const totalTimeoutMs = this.config.total_timeout_sec * 1000;
@@ -376,12 +410,14 @@ export class DaoEvolver {
 
       if (inactiveElapsed > inactivityTimeoutMs) {
         timedOut = true;
-        this.tui.addLog(chalk.red(`[Timeout] Inactivity for ${this.config.inactivity_timeout_sec}s`));
+        timeoutReason = `Inactivity ${this.config.inactivity_timeout_sec}s`;
+        this.tui.addLog(chalk.red(`[Timeout] ${timeoutReason}`));
         try { proc.kill(); } catch {}
         clearInterval(timer);
       } else if (totalElapsed > totalTimeoutMs) {
         timedOut = true;
-        this.tui.addLog(chalk.red(`[Timeout] Total execution time exceeded ${this.config.total_timeout_sec}s`));
+        timeoutReason = `Total ${this.config.total_timeout_sec}s`;
+        this.tui.addLog(chalk.red(`[Timeout] ${timeoutReason}`));
         try { proc.kill(); } catch {}
         clearInterval(timer);
       }
@@ -409,8 +445,12 @@ export class DaoEvolver {
     if (promptText) this._toolStream(cycle, tool.name, "prompt", promptText.split(/\s+/).join(" ").slice(0, 220));
     const rc: number = await new Promise(resolve => proc.on("close", (code: any) => resolve(Number(code ?? 1))));
     clearInterval(timer);
-    // If we have changes, we might consider it OK even if exit code is non-zero (common with some LLM CLIs)
+    
     const ok = (rc === 0 || lines.length > 10) && !timedOut;
+    const status = ok ? "success" : "fail";
+    const failReason = timedOut ? timeoutReason : (rc !== 0 ? `Exit ${rc}` : undefined);
+    this.tui.setSubTask(tool.name, status, failReason);
+    
     return [ok, lines.join("\n")];
   }
 
@@ -623,6 +663,7 @@ export class DaoEvolver {
   }
 
   _emitConsoleLog(channel: string, payload: Record<string, any>): void {
+    if (process.stdout.isTTY) return; // Don't spam console if TUI is active
     const text = JSON.stringify(payload);
     console.log(`[evo-log:${channel}] ${text}`);
   }
