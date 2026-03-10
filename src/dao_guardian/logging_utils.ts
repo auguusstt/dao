@@ -1,10 +1,21 @@
 import pino from "pino";
 
+let globalCorrelationId: string | undefined;
+
+export function setGlobalCorrelationId(corrId: string): void {
+  globalCorrelationId = corrId;
+}
+
+export function getGlobalCorrelationId(): string | undefined {
+  return globalCorrelationId;
+}
+
 export function setupLogger(name: string) {
   const logger = pino({
     name,
     level: process.env.DAO_LOG_LEVEL?.toLowerCase() || "info",
-    timestamp: pino.stdTimeFunctions.isoTime
+    timestamp: pino.stdTimeFunctions.isoTime,
+    base: { pid: process.pid }
   });
   return logger;
 }
@@ -50,9 +61,17 @@ export function logSummary(logger: pino.Logger, summary: {
 }
 
 export function logException(logger: pino.Logger, err: any, msg: string, context: Record<string, any> = {}) {
-  const payload = { 
-    ...context, 
-    err: err instanceof Error ? { message: err.message, stack: err.stack } : { message: String(err) },
+  const payload: Record<string, any> = {
+    ...context,
+    corr_id: getGlobalCorrelationId(),
+    err: err instanceof Error 
+      ? { 
+          message: err.message, 
+          stack: err.stack,
+          name: err.name,
+          code: (err as any).code
+        } 
+      : { message: String(err) },
     timestamp: new Date().toISOString()
   };
   logger.error(payload, `${msg}: ${payload.err.message}`);
@@ -66,5 +85,38 @@ export function safeLog(logger: pino.Logger, level: string, msg: string, ...args
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Generate a short correlation ID for tracing requests across logs
+ */
+export function generateCorrelationId(): string {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+/**
+ * Wrap an async operation with automatic error logging and correlation ID tracking.
+ * Returns [success, result, error] tuple.
+ */
+export async function withErrorContext<T>(
+  logger: pino.Logger,
+  operation: () => Promise<T>,
+  context: { name: string; corrId?: string; details?: Record<string, any> }
+): Promise<[boolean, T | null, Error | null]> {
+  const corrId = context.corrId ?? generateCorrelationId();
+  const prevCorrId = getGlobalCorrelationId();
+  setGlobalCorrelationId(corrId);
+  
+  try {
+    logger.info({ corrId, op: context.name, ...context.details }, `Starting operation: ${context.name}`);
+    const result = await operation();
+    logger.info({ corrId, op: context.name }, `Completed operation: ${context.name}`);
+    return [true, result, null];
+  } catch (err) {
+    logException(logger, err, `Operation failed: ${context.name}`, { corrId, ...context.details });
+    return [false, null, err instanceof Error ? err : new Error(String(err))];
+  } finally {
+    setGlobalCorrelationId(prevCorrId ?? "");
   }
 }
