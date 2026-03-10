@@ -2,7 +2,6 @@
 
 此目录包含 TypeScript 版的守护与进化循环实现，用于在独立子仓中进行“最小可验证改动”的开发与验证。
 
-
 ## 参考
 
 - [geminicli](https://geminicli.com)为例:
