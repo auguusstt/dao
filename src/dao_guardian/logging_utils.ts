@@ -192,8 +192,55 @@ export function checkEvolutionHealth(history: Array<{ status: string; tool: stri
  * Log health check result for observability.
  */
 export function logHealthCheck(logger: pino.Logger, health: HealthCheckResult): void {
-  const level = health.status === "healthy" ? "info" : 
+  const level = health.status === "healthy" ? "info" :
                 health.status === "degraded" ? "warn" : "error";
   const fn = (logger as any)[level] ?? logger.info.bind(logger);
   fn.call(logger, health, `[HealthCheck] ${health.status.toUpperCase()}: ${health.message}`);
+}
+
+/**
+ * Tool failure analysis for debugging failed evolution cycles.
+ * Captures tool output patterns to help diagnose recurring failures.
+ */
+export interface ToolFailureAnalysis {
+  timestamp: string;
+  cycle: number;
+  tool: string;
+  failure_mode: "timeout" | "no_changes" | "validation_failed" | "guard_blocked" | "unknown";
+  output_preview: string;
+  changed_files: string[];
+  suggestion?: string;
+}
+
+/**
+ * Analyze and log tool failure for recoverability.
+ * Helps identify patterns in failed cycles.
+ */
+export function logToolFailure(
+  logger: pino.Logger,
+  analysis: ToolFailureAnalysis
+): void {
+  const { cycle, tool, failure_mode, output_preview, changed_files } = analysis;
+  
+  let suggestion = analysis.suggestion;
+  if (!suggestion) {
+    if (failure_mode === "no_changes") {
+      suggestion = "Tool produced no code changes; consider adjusting objective or tool prompt";
+    } else if (failure_mode === "validation_failed") {
+      suggestion = "Code changes failed TypeScript validation; review type errors";
+    } else if (failure_mode === "guard_blocked") {
+      suggestion = "Changes violated guard rules (protected paths or allowed roots)";
+    } else if (failure_mode === "timeout") {
+      suggestion = "Tool execution timed out; consider reducing scope or increasing timeout";
+    }
+  }
+
+  const payload = {
+    ...analysis,
+    suggestion,
+    corr_id: getGlobalCorrelationId(),
+    timestamp: new Date().toISOString()
+  };
+
+  logger.warn(payload, `[ToolFailure] Cycle ${cycle} ${tool} failed: ${failure_mode}`);
 }

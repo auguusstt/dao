@@ -5,7 +5,7 @@ import os from "os";
 import chalk from "chalk";
 import { TUI, Text, ProcessTerminal, matchesKey, Key, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { readJson, writeJson, appendJsonl, nowIso, ensureDir, backupFile } from "../common/fs.js";
-import { setupLogger, logSummary, logException, checkEvolutionHealth, logHealthCheck } from "./logging_utils.js";
+import { setupLogger, logSummary, logException, checkEvolutionHealth, logHealthCheck, logToolFailure } from "./logging_utils.js";
 
 type ToolSpec = { name: string; check_cmd: string; run_cmd: string; parser?: string };
 
