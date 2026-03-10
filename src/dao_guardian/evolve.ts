@@ -5,7 +5,7 @@ import os from "os";
 import chalk from "chalk";
 import { TUI, Text, ProcessTerminal, matchesKey, Key, truncateToWidth, visibleWidth } from "@mariozechner/pi-tui";
 import { readJson, writeJson, appendJsonl, nowIso, ensureDir, backupFile } from "../common/fs.js";
-import { setupLogger, logSummary, logException } from "./logging_utils.js";
+import { setupLogger, logSummary, logException, checkEvolutionHealth, logHealthCheck } from "./logging_utils.js";
 
 type ToolSpec = { name: string; check_cmd: string; run_cmd: string; parser?: string };
 
@@ -406,6 +406,12 @@ export class DaoEvolver {
       await this._cleanupWorktree(worktree, branch);
       const elapsed = Math.round((Date.now() - cycleStarted) / 1000);
       await this._trace(cycle, "END", "本轮结束", { elapsed_sec: elapsed });
+      
+      // Perform health check for observability
+      const healthHistory = (runtime.history || []).map((h: any) => ({ status: h.status, tool: h.tool }));
+      const health = checkEvolutionHealth(healthHistory);
+      logHealthCheck(this.logger, health);
+      
       this._logIO("写入运行时文件", { path: runtimePath });
       await writeJson(runtimePath, runtime);
     }
