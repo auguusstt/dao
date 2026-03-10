@@ -364,6 +364,7 @@ export class DaoEvolver {
   }
 
   async _checkMainRepoClean(): Promise<[boolean, string]> {
+    this._logCommand("git status --porcelain");
     const cp = spawnSync("git", ["status", "--porcelain"], { cwd: this.root, encoding: "utf-8" });
     if (cp.status !== 0) return [false, cp.stderr?.trim() || "git status 失败"];
     if (cp.stdout.trim()) return [false, "主仓库存在未提交改动，暂停自动进化"];
@@ -373,6 +374,7 @@ export class DaoEvolver {
   async _availableTools(): Promise<ToolSpec[]> {
     const out: ToolSpec[] = [];
     for (const t of this.config.toolchain) {
+      this._logCommand(`bash -lc ${t.check_cmd}`, { tool: t.name });
       const cp = spawnSync("bash", ["-lc", t.check_cmd], { cwd: this.root, encoding: "utf-8" });
       if ((cp.status ?? 1) === 0) out.push(t);
     }
@@ -380,15 +382,21 @@ export class DaoEvolver {
   }
 
   async _ensureGitHead(): Promise<[boolean, string]> {
+    this._logCommand("git rev-parse --verify HEAD");
     const cp = spawnSync("git", ["rev-parse", "--verify", "HEAD"], { cwd: this.root, encoding: "utf-8" });
     if ((cp.status ?? 1) === 0) return [true, "ok"];
     const addTargets = ["README.md", "config", "src", "pyproject.toml", "uv.lock"];
     const existing = addTargets.filter(p => fs.access(path.join(this.root, p)).then(() => true).catch(() => false));
     const resolved = await Promise.all(existing);
     const present = addTargets.filter((_, i) => resolved[i]);
+    
+    this._logCommand(`git add ${present.join(" ")}`);
     const add = spawnSync("git", ["add", ...present], { cwd: this.root, encoding: "utf-8" });
     if ((add.status ?? 1) !== 0) return [false, add.stderr?.trim() || "初始化 add 失败"];
-    const commit = spawnSync("git", ["commit", "-m", "chore: bootstrap autonomous evolution core"], { cwd: this.root, encoding: "utf-8" });
+    
+    const commitMsg = "chore: bootstrap autonomous evolution core";
+    this._logCommand(`git commit -m "${commitMsg}"`);
+    const commit = spawnSync("git", ["commit", "-m", commitMsg], { cwd: this.root, encoding: "utf-8" });
     if ((commit.status ?? 1) !== 0) {
       const detail = `${commit.stdout}\n${commit.stderr}`.trim();
       return [false, `初始化提交失败: ${detail.slice(0, 260)}`];
@@ -403,18 +411,23 @@ export class DaoEvolver {
       
       // If it exists, sync it to current main immediately
       // This is much faster than deleting and re-creating
+      this._logCommand("git merge --abort", { cwd: p });
       spawnSync("git", ["merge", "--abort"], { cwd: p });
+      this._logCommand("git reset --hard", { cwd: p });
       spawnSync("git", ["reset", "--hard"], { cwd: p });
       
       // Checkout the new branch based on the LATEST main
+      this._logCommand(`git checkout -B ${branch} main`, { cwd: p });
       const cp = spawnSync("git", ["checkout", "-B", branch, "main"], { cwd: p, encoding: "utf-8" });
       if (cp.status === 0) return true;
       
       // If somehow checkout -B failed (e.g. main not found), fallback to re-add
+      this._logCommand(`git worktree remove --force ${p}`);
       spawnSync("git", ["worktree", "remove", "--force", p], { cwd: this.root });
     } catch {}
 
     // Create fresh worktree based on main
+    this._logCommand(`git worktree add -b ${branch} ${p} main`);
     const cp = spawnSync("git", ["worktree", "add", "-b", branch, p, "main"], { cwd: this.root, encoding: "utf-8" });
     return (cp.status ?? 1) === 0;
   }
@@ -426,7 +439,9 @@ export class DaoEvolver {
     let allowedFiles: string[] = [];
     for (const root of this.config.allowed_edit_roots) {
       try {
-        const cp = spawnSync("find", [root, "-maxdepth", "2", "-not", "-path", "*/.*"], { cwd: worktree, encoding: "utf-8" });
+        const cmdArgs = [root, "-maxdepth", "2", "-not", "-path", "*/.*"];
+        this._logCommand(`find ${cmdArgs.join(" ")}`, { cwd: worktree });
+        const cp = spawnSync("find", cmdArgs, { cwd: worktree, encoding: "utf-8" });
         if (cp.status === 0) {
           allowedFiles = allowedFiles.concat(cp.stdout.split("\n").filter(Boolean));
         }
@@ -484,6 +499,8 @@ export class DaoEvolver {
       TERM: "xterm-256color"
     };
     this.tui.setSubTask(tool.name, "running");
+    
+    this._logCommand(`bash -lc ${cmd}`, { cwd: worktree, tool: tool.name });
     const proc = spawn("bash", ["-lc", cmd], { cwd: worktree, env });
     
     // Explicitly end stdin to prevent hanging on interactive prompts
@@ -561,6 +578,7 @@ export class DaoEvolver {
   }
 
   async _changedFiles(worktree: string): Promise<string[]> {
+    this._logCommand("git status --porcelain", { cwd: worktree });
     const cp = spawnSync("git", ["status", "--porcelain"], { cwd: worktree, encoding: "utf-8" });
     if ((cp.status ?? 1) !== 0) return [];
     const files: string[] = [];
@@ -588,6 +606,7 @@ export class DaoEvolver {
   async _validate(worktree: string): Promise<[boolean, string]> {
     if (!this.config.validate_commands || this.config.validate_commands.length === 0) return [true, "未配置验证命令"];
     for (const cmd of this.config.validate_commands) {
+      this._logCommand(`bash -lc ${cmd}`, { cwd: worktree });
       const cp = spawnSync("bash", ["-lc", cmd], { cwd: worktree, encoding: "utf-8" });
       if ((cp.status ?? 1) !== 0) {
         const err = `${cp.stdout}\n${cp.stderr}`.trim();
@@ -607,9 +626,11 @@ export class DaoEvolver {
   }
 
   async _commitCandidate(worktree: string, cycle: number, objective: string, toolName: string, score: number): Promise<[boolean, string]> {
+    this._logCommand("git add -A", { cwd: worktree });
     const add = spawnSync("git", ["add", "-A"], { cwd: worktree, encoding: "utf-8" });
     if ((add.status ?? 1) !== 0) return [false, add.stderr?.trim() || "git add 失败"];
     const msg = `auto(evo): cycle=${cycle} tool=${toolName} score=${score.toFixed(3)} obj=${objective.slice(0, 40)}`;
+    this._logCommand(`git commit -m "${msg}"`, { cwd: worktree });
     const commit = spawnSync("git", ["commit", "-m", msg], { cwd: worktree, encoding: "utf-8" });
     if ((commit.status ?? 1) !== 0) {
       const output = `${commit.stdout}\n${commit.stderr}`.trim().slice(0, 300);
@@ -619,6 +640,7 @@ export class DaoEvolver {
   }
 
   async _mergeBranch(branch: string): Promise<[boolean, string]> {
+    this._logCommand(`git merge --ff-only ${branch}`);
     const cp = spawnSync("git", ["merge", "--ff-only", branch], { cwd: this.root, encoding: "utf-8" });
     const out = `${cp.stdout}\n${cp.stderr}`.trim();
     return [(cp.status ?? 1) === 0, out.slice(0, 300)];
@@ -627,14 +649,25 @@ export class DaoEvolver {
   async _cleanupWorktree(worktree: string, branch: string): Promise<void> {
     try {
       // Soft cleanup: reset state but KEEP the directory and LLM caches
+      this._logCommand("git reset --hard HEAD", { cwd: worktree });
       spawnSync("git", ["reset", "--hard", "HEAD"], { cwd: worktree });
+      this._logCommand("git clean -fd", { cwd: worktree });
       spawnSync("git", ["clean", "-fd"], { cwd: worktree });
       // Detach HEAD so the branch is no longer "in use" by this worktree
+      this._logCommand("git checkout --detach", { cwd: worktree });
       spawnSync("git", ["checkout", "--detach"], { cwd: worktree });
     } catch {}
     
     // Delete the temporary branch in main repo to keep it clean
+    this._logCommand(`git branch -D ${branch}`);
     spawnSync("git", ["branch", "-D", branch], { cwd: this.root });
+  }
+
+  _logCommand(cmd: string, detail: Record<string, any> = {}): void {
+    const cwd = detail.cwd || this.root;
+    const msg = `[CMD] ${cmd} (in ${path.relative(this.root, cwd) || "."})`;
+    this.tui.addLog(chalk.blue(msg));
+    this._trace(0, "EXEC", msg, { cmd, ...detail });
   }
 
   _record(runtime: any, cycle: number, status: string, reason: string, score: number, toolName: string, changedCount: number = 0): void {
