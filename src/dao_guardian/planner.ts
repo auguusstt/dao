@@ -1,6 +1,7 @@
 import path from "path";
 import { promises as fs } from "fs";
-import { spawn, spawnSync, ChildProcess } from "child_process";
+import { spawn, spawnSync } from "child_process";
+import type { ChildProcess } from "child_process";
 import { readJson, writeJson, appendJsonl, nowIso } from "../common/fs.js";
 import chalk from "chalk";
 import { setupLogger } from "./logging_utils.js";
@@ -102,20 +103,20 @@ ${failureModesStr}
     let stderr = "";
 
     // 真正的“纯转发”：不分行，不解析，收到什么字节就吐出什么字节
-    proc.stdout.on("data", (chunk) => {
+    proc.stdout.on("data", (chunk: Buffer) => {
       const s = chunk.toString();
       output += s;
       process.stdout.write(s);
     });
 
-    proc.stderr.on("data", (chunk) => {
+    proc.stderr.on("data", (chunk: Buffer) => {
       const s = chunk.toString();
       stderr += s;
       process.stderr.write(chalk.red.dim(s));
     });
 
     const exitCode = await new Promise<number>((resolve) => {
-      proc.on("close", (code) => {
+      proc.on("close", (code: number | null) => {
         this._currentProc = null;
         resolve(code ?? 0);
       });
@@ -162,7 +163,7 @@ ${failureModesStr}
     const p = path.join(this.logsDir, "evolution_events.jsonl");
     try {
       const data = await fs.readFile(p, "utf-8");
-      return data.split("\n").filter(Boolean).slice(-n).map(line => JSON.parse(line));
+      return data.split("\n").filter(Boolean).slice(-n).map((line: string) => JSON.parse(line));
     } catch { return []; }
   }
 
