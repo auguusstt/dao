@@ -2,6 +2,8 @@ import { Command } from "commander";
 import path from "path";
 import { DaoEvolver, printStatus } from "./evolve.js";
 import { mainPredict } from "./main.js";
+import { syncDependencies } from "../common/sync.js";
+import { logger } from "../common/logger.js";
 
 const program = new Command();
 program.name("dao-cli").description("DAO 统一入口：默认执行 evolve，可用子命令切换");
@@ -35,5 +37,19 @@ program
   .action(async (opts: any) => {
     await printStatus(String(opts.root ?? "."), Number(opts.tail ?? 8));
   });
+
+program
+  .command("sync")
+  .action(async (opts: any) => {
+    const log = logger.withTag("sync");
+    syncDependencies().catch(err => {
+        log.error(`同步失败: ${err.message}`);
+        process.exit(1);
+    });
+
+  });
+
+
+
 
 program.parseAsync(process.argv);

@@ -48,6 +48,48 @@
       ],
       "pino/*": [
         "./.dao/ref/github.com/pinojs/pino/v10.3.1/*"
+      ],
+      "@google/gemini-cli-core": [
+        "./.dao/ref/github.com/google-gemini/gemini-cli/v0.33.0"
+      ],
+      "@google/gemini-cli-core/*": [
+        "./.dao/ref/github.com/google-gemini/gemini-cli/v0.33.0/*"
+      ],
+      "@opentelemetry/api": [
+        "./.dao/ref/github.com/open-telemetry/opentelemetry-js/v1.9.0"
+      ],
+      "@opentelemetry/api/*": [
+        "./.dao/ref/github.com/open-telemetry/opentelemetry-js/v1.9.0/*"
+      ],
+      "@opentelemetry/exporter-trace-otlp-grpc": [
+        "./.dao/ref/github.com/open-telemetry/opentelemetry-js/0.213.0"
+      ],
+      "@opentelemetry/exporter-trace-otlp-grpc/*": [
+        "./.dao/ref/github.com/open-telemetry/opentelemetry-js/0.213.0/*"
+      ],
+      "@opentelemetry/exporter-trace-otlp-http": [
+        "./.dao/ref/github.com/open-telemetry/opentelemetry-js/0.213.0"
+      ],
+      "@opentelemetry/exporter-trace-otlp-http/*": [
+        "./.dao/ref/github.com/open-telemetry/opentelemetry-js/0.213.0/*"
+      ],
+      "@opentelemetry/resources": [
+        "./.dao/ref/github.com/open-telemetry/opentelemetry-js/v2.6.0"
+      ],
+      "@opentelemetry/resources/*": [
+        "./.dao/ref/github.com/open-telemetry/opentelemetry-js/v2.6.0/*"
+      ],
+      "@opentelemetry/sdk-trace-base": [
+        "./.dao/ref/github.com/open-telemetry/opentelemetry-js/v2.6.0"
+      ],
+      "@opentelemetry/sdk-trace-base/*": [
+        "./.dao/ref/github.com/open-telemetry/opentelemetry-js/v2.6.0/*"
+      ],
+      "@opentelemetry/semantic-conventions": [
+        "./.dao/ref/github.com/open-telemetry/opentelemetry-js/1.40.0"
+      ],
+      "@opentelemetry/semantic-conventions/*": [
+        "./.dao/ref/github.com/open-telemetry/opentelemetry-js/1.40.0/*"
       ]
     }
   },

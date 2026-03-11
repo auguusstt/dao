@@ -5,7 +5,7 @@ import { execSync } from "node:child_process";
 import * as jsonc from "jsonc-parser";
 import { logger } from "./logger.js";
 
-const log = logger.withTag("Sync");
+const log = logger.withTag("sync");
 
 const GLOBAL_CACHE_DIR = path.join(os.homedir(), ".dao");
 const METADATA_CACHE_PATH = path.join(GLOBAL_CACHE_DIR, "registry-cache.json");
@@ -226,6 +226,8 @@ interface PackageJson {
 }
 
 export async function syncDependencies(): Promise<void> {
+  log.info(`sync start`);
+
   const pkgPath = path.resolve(process.cwd(), "package.json");
   const tsConfigPath = path.resolve(process.cwd(), "tsconfig.json");
   const projectConfigPath = path.resolve(process.cwd(), ".dao", "config.json");

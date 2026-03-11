@@ -8,14 +8,11 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
-    "start:evolver": "tsx src/dao_guardian/cli.ts",
-    "start:guardian": "tsx src/dao_guardian/cli.ts predict",
-    "status": "tsx src/dao_guardian/cli.ts status",
-    "sync": "tsx src/tools/sync_cli.ts",
     "lint": "eslint src",
     "test": "vitest run"
   },
   "dependencies": {
+    "@google/gemini-cli-core": "^0.33.0",
     "@mariozechner/pi-tui": "^0.57.1",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/exporter-trace-otlp-grpc": "^0.213.0",
