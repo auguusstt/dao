@@ -50,6 +50,11 @@
   - [Stream Chat React AI SDK](https://getstream.io/chat/docs/sdk/react/guides/ai-integrations/stream-chat-ai-sdk)  
   - [Shadcn React AI 组件（AI Chat）](https://www.shadcn.io/ai)  
 
+### 可观测性
+
+- <http://logfire.pydantic.dev/docs/comparisons/langfuse/>
+
+
 
 ### workflow
 

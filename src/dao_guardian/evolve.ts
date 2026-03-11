@@ -7,6 +7,8 @@ import { TUI, Text, ProcessTerminal, matchesKey, Key, truncateToWidth, visibleWi
 import { readJson, writeJson, appendJsonl, nowIso, ensureDir, backupFile } from "../common/fs.js";
 import { setupLogger, logSummary, logException, checkEvolutionHealth, logHealthCheck, logToolFailure, ToolFailureAnalysis, HealthCheckResult } from "./logging_utils.js";
 import { DaoPlanner, PlanResult } from "./planner.js";
+import { getTracer } from "./tracing.js";
+import { Span, SpanStatusCode, trace, Context } from "@opentelemetry/api";
 
 type ToolSpec = { name: string; check_cmd: string; run_cmd: string; parser?: string };
 
@@ -189,6 +191,7 @@ export class DaoEvolver {
   logger = setupLogger("dao.evolver");
   tui = new EvoTUI();
   planner: DaoPlanner;
+  private tracer = getTracer();
   private _currentToolProc: ChildProcess | null = null;
 
   constructor(root: string) {
@@ -312,162 +315,190 @@ export class DaoEvolver {
     const runtime = await readJson<any>(runtimePath);
     runtime.cycle = Number(runtime.cycle) + 1;
     const cycle = Number(runtime.cycle);
-    const cycleStarted = Date.now();
 
-    const getHealth = () => {
-      const healthHistory = (runtime.history || []).map((h: any) => ({ status: h.status, tool: h.tool }));
-      return checkEvolutionHealth(healthHistory);
-    };
+    return this.tracer.startActiveSpan(`Cycle ${cycle}`, async (span: Span) => {
+      const cycleStarted = Date.now();
 
-    const updateUI = (phase: string, msg: string, obj: string = "...") => {
-      this.tui.updateStatus(cycle, obj, phase, msg, getHealth());
-    };
+      const getHealth = () => {
+        const healthHistory = (runtime.history || []).map((h: any) => ({ status: h.status, tool: h.tool }));
+        return checkEvolutionHealth(healthHistory);
+      };
 
-    // 检查是否连续验证失败
-    const history = runtime.history || [];
-    const recentValidations = history.slice(-5).filter((h: any) => h.reason?.includes("校验未通过"));
-    if (recentValidations.length >= 5) {
-      this.tui.addLog(chalk.redBright.bold("\n[CRITICAL] 连续 5 次验证失败，怀疑核心构建逻辑损坏，请人工修复。"));
-      return false;
-    }
+      const updateUI = (phase: string, msg: string, obj: string = "...") => {
+        this.tui.updateStatus(cycle, obj, phase, msg, getHealth());
+        span.addEvent("Phase Change", { phase, message: msg });
+      };
 
-    updateUI("START", "开始新一轮进化");
-    await this._setLiveStatus(cycle, "START", "开始新一轮进化");
-    await this._trace(cycle, "START", "开始新一轮进化", {});
-
-    updateUI("CHECK_TOOLS", "检测工具链");
-    const tools = await this._availableTools();
-    if (tools.length === 0) {
-      const reason = "未检测到可用工具，请检查 evolution.json";
-      runtime.failed_cycles += 1;
-      this._record(runtime, cycle, "FAIL", reason, 0.0, "");
-      await writeJson(runtimePath, runtime);
-      updateUI("FAIL", reason);
-      return false;
-    }
-
-    updateUI("PLANNING", "生成本轮进化目标");
-    const [objective, plan] = await this._nextObjective(runtime, tools);
-    updateUI("PLANNING", "规划完成", objective);
-
-    updateUI("ENSURE_HEAD", "同步 Git 状态", objective);
-    const [headOk, headReason] = await this._ensureGitHead();
-    if (!headOk) {
-      runtime.failed_cycles += 1;
-      this._record(runtime, cycle, "FAIL", headReason, 0.0, "");
-      await writeJson(runtimePath, runtime);
-      updateUI("FAIL", headReason, objective);
-      return false;
-    }
-
-    updateUI("CHECK_CLEAN", "检查工作区", objective);
-    const [okClean, cleanReason] = await this._checkMainRepoClean();
-    if (!okClean) {
-      this._record(runtime, cycle, "SKIP", cleanReason, 0.0, "");
-      await writeJson(runtimePath, runtime);
-      updateUI("SKIP", cleanReason, objective);
-      return false;
-    }
-
-    const tool = tools[(cycle - 1) % tools.length];
-    const branch = `auto/evo-${new Date().toISOString().replace(/[:.]/g, "-")}-${cycle}`;
-    const worktree = path.join(this.worktreesDir, "dao-1");
-    
-    await this._trace(cycle, "PLAN", "已选择工具与目标", {
-      tool: tool.name,
-      objective,
-      branch
-    });
-
-    updateUI("CREATE_WORKTREE", "创建隔离环境");
-    const created = await this._createWorktree(branch, worktree);
-    if (!created) {
-      runtime.failed_cycles += 1;
-      this._record(runtime, cycle, "FAIL", "隔离环境创建失败", 0.0, tool.name);
-      await writeJson(runtimePath, runtime);
-      updateUI("FAIL", "隔离环境创建失败");
-      return false;
-    }
-
-    try {
-      updateUI("RUN_TOOL", `执行智能进化: ${tool.name}`, objective);
-      const promptFile = await this._buildPromptFile(worktree, cycle, objective);
-      let [toolOk, toolOut] = await this._runTool(cycle, tool, worktree, promptFile);
-      
-      let [validateOk, validateDetail] = await this._validate(worktree);
-      
-      if (!validateOk && toolOk) {
-        updateUI("SELF_HEAL", "验证失败，启动自我修复...", objective);
-        this.tui.addLog(chalk.yellowBright(`[Self-Heal] 检测到验证失败，正在将错误反馈给 Agent 修复...`));
-        
-        const healPrompt = `你的改动在验证阶段失败了。请修复以下错误：\n\n${validateDetail}\n\n只返回修复后的代码或针对错误的补丁。`;
-        const healFile = path.join(os.tmpdir(), `heal_prompt_${cycle}.txt`);
-        await fs.writeFile(healFile, healPrompt, "utf-8");
-        
-        const [healOk, healOut] = await this._runTool(cycle, tool, worktree, healFile);
-        toolOk = healOk;
-        const [v2Ok, v2Detail] = await this._validate(worktree);
-        validateOk = v2Ok;
-        validateDetail = v2Detail;
-        
-        if (validateOk) this.tui.addLog(chalk.greenBright(`[Self-Heal] 自我修复成功！`));
-        else this.tui.addLog(chalk.redBright(`[Self-Heal] 自提修复后验证仍失败。`));
-      }
-
-      updateUI("VALIDATE", "执行最终护栏检查", objective);
-      const changedFiles = await this._changedFiles(worktree);
-      if (changedFiles.length > 0) {
-        this.tui.addLog(chalk.greenBright.bold(`检测到文件变动 (${changedFiles.length} 个):`));
-        for (const f of changedFiles) this.tui.addLog(chalk.greenBright(`  - ${f}`));
-      }
-
-      const [guardOk, guardReason] = this._guardChanges(changedFiles);
-      if (!guardOk && changedFiles.length > 0) this.tui.addLog(chalk.redBright(`[GUARD] 护栏拦截: ${guardReason}`));
-
-      const score = this._score(toolOk, changedFiles, guardOk, validateOk);
-      await this._trace(cycle, "EVAL", "评分结果", { score, changed: changedFiles.length, guard_ok: guardOk, validate_ok: validateOk });
-
-      if (toolOk && changedFiles.length && guardOk && validateOk && score >= this.config.min_score_promote) {
-        updateUI("COMMIT", "准备提交", objective);
-        const [commitOk, commitMsg] = await this._commitCandidate(worktree, cycle, objective, tool.name, score);
-        let mergeOk = false;
-        let mergeMsg = "未执行 merge";
-        if (commitOk) {
-          updateUI("MERGE", "合并到主分支", objective);
-          const r = await this._mergeBranch(branch);
-          mergeOk = r[0];
-          mergeMsg = r[1];
+      try {
+        // 检查是否连续验证失败
+        const history = runtime.history || [];
+        const recentValidations = history.slice(-5).filter((h: any) => h.reason?.includes("校验未通过"));
+        if (recentValidations.length >= 5) {
+          const msg = "连续 5 次验证失败，怀疑核心构建逻辑损坏";
+          this.tui.addLog(chalk.redBright.bold(`\n[CRITICAL] ${msg}，请人工修复。`));
+          span.setStatus({ code: SpanStatusCode.ERROR, message: msg });
+          span.end();
+          return false;
         }
-        if (commitOk && mergeOk) {
-          runtime.successful_promotions += 1;
-          runtime.last_tool = tool.name;
-          this._record(runtime, cycle, "PROMOTED", `晋升成功: ${mergeMsg}`, score, tool.name, changedFiles.length);
-          updateUI("DONE", "进化成功并合并", objective);
-        } else {
+
+        updateUI("START", "开始新一轮进化");
+        await this._setLiveStatus(cycle, "START", "开始新一轮进化");
+        await this._trace(cycle, "START", "开始新一轮进化", {});
+
+        updateUI("CHECK_TOOLS", "检测工具链");
+        const tools = await this._availableTools();
+        if (tools.length === 0) {
+          const reason = "未检测到可用工具，请检查 evolution.json";
           runtime.failed_cycles += 1;
-          this._record(runtime, cycle, "FAIL", `提交/合并失败: ${commitMsg} / ${mergeMsg}`, score, tool.name, changedFiles.length);
-          updateUI("FAIL", "提交/合并受阻");
+          this._record(runtime, cycle, "FAIL", reason, 0.0, "");
+          await writeJson(runtimePath, runtime);
+          updateUI("FAIL", reason);
+          span.setStatus({ code: SpanStatusCode.ERROR, message: reason });
+          span.end();
+          return false;
         }
-      } else {
-        const reason = !toolOk ? "工具执行失败" : (!changedFiles.length ? "无代码改动" : (!guardOk ? `护栏拒绝 (${guardReason})` : `验证失败或得分低 (${score.toFixed(2)})`));
-        runtime.failed_cycles += 1;
-        this._record(runtime, cycle, "FAIL", reason, score, tool.name, changedFiles.length);
-        updateUI("FAIL", reason, objective);
+
+        updateUI("PLANNING", "生成本轮进化目标");
+        const [objective, plan] = await this._nextObjective(runtime, tools);
+        updateUI("PLANNING", "规划完成", objective);
+        span.setAttributes({ objective });
+
+        updateUI("ENSURE_HEAD", "同步 Git 状态", objective);
+        const [headOk, headReason] = await this._ensureGitHead();
+        if (!headOk) {
+          runtime.failed_cycles += 1;
+          this._record(runtime, cycle, "FAIL", headReason, 0.0, "");
+          await writeJson(runtimePath, runtime);
+          updateUI("FAIL", headReason, objective);
+          span.setStatus({ code: SpanStatusCode.ERROR, message: headReason });
+          span.end();
+          return false;
+        }
+
+        updateUI("CHECK_CLEAN", "检查工作区", objective);
+        const [okClean, cleanReason] = await this._checkMainRepoClean();
+        if (!okClean) {
+          this._record(runtime, cycle, "SKIP", cleanReason, 0.0, "");
+          await writeJson(runtimePath, runtime);
+          updateUI("SKIP", cleanReason, objective);
+          span.end();
+          return false;
+        }
+
+        const tool = tools[(cycle - 1) % tools.length];
+        const branch = `auto/evo-${new Date().toISOString().replace(/[:.]/g, "-")}-${cycle}`;
+        const worktree = path.join(this.worktreesDir, "dao-1");
         
-        if (score < 0.5 && toolOk) {
-          this.tui.addLog(chalk.redBright(`[WARNING] 低分进化尝试，已自动舍弃。`));
+        span.setAttributes({ "tool.name": tool.name, "git.branch": branch });
+        await this._trace(cycle, "PLAN", "已选择工具与目标", {
+          tool: tool.name,
+          objective,
+          branch
+        });
+
+        updateUI("CREATE_WORKTREE", "创建隔离环境");
+        const created = await this._createWorktree(branch, worktree);
+        if (!created) {
+          runtime.failed_cycles += 1;
+          this._record(runtime, cycle, "FAIL", "隔离环境创建失败", 0.0, tool.name);
+          await writeJson(runtimePath, runtime);
+          updateUI("FAIL", "隔离环境创建失败");
+          span.setStatus({ code: SpanStatusCode.ERROR, message: "隔离环境创建失败" });
+          span.end();
+          return false;
         }
+
+        try {
+          updateUI("RUN_TOOL", `执行智能进化: ${tool.name}`, objective);
+          const promptFile = await this._buildPromptFile(worktree, cycle, objective);
+          let [toolOk, toolOut] = await this._runTool(cycle, tool, worktree, promptFile);
+          
+          let [validateOk, validateDetail] = await this._validate(worktree);
+          
+          if (!validateOk && toolOk) {
+            updateUI("SELF_HEAL", "验证失败，启动自我修复...", objective);
+            this.tui.addLog(chalk.yellowBright(`[Self-Heal] 检测到验证失败，正在将错误反馈给 Agent 修复...`));
+            
+            const healPrompt = `你的改动在验证阶段失败了。请修复以下错误：\n\n${validateDetail}\n\n只返回修复后的代码或针对错误的补丁。`;
+            const healFile = path.join(os.tmpdir(), `heal_prompt_${cycle}.txt`);
+            await fs.writeFile(healFile, healPrompt, "utf-8");
+            
+            const [healOk, healOut] = await this._runTool(cycle, tool, worktree, healFile);
+            toolOk = healOk;
+            const [v2Ok, v2Detail] = await this._validate(worktree);
+            validateOk = v2Ok;
+            validateDetail = v2Detail;
+            
+            if (validateOk) this.tui.addLog(chalk.greenBright(`[Self-Heal] 自我修复成功！`));
+            else this.tui.addLog(chalk.redBright(`[Self-Heal] 自提修复后验证仍失败。`));
+          }
+
+          updateUI("VALIDATE", "执行最终护栏检查", objective);
+          const changedFiles = await this._changedFiles(worktree);
+          if (changedFiles.length > 0) {
+            this.tui.addLog(chalk.greenBright.bold(`检测到文件变动 (${changedFiles.length} 个):`));
+            for (const f of changedFiles) this.tui.addLog(chalk.greenBright(`  - ${f}`));
+          }
+
+          const [guardOk, guardReason] = this._guardChanges(changedFiles);
+          if (!guardOk && changedFiles.length > 0) this.tui.addLog(chalk.redBright(`[GUARD] 护栏拦截: ${guardReason}`));
+
+          const score = this._score(toolOk, changedFiles, guardOk, validateOk);
+          await this._trace(cycle, "EVAL", "评分结果", { score, changed: changedFiles.length, guard_ok: guardOk, validate_ok: validateOk });
+
+          if (toolOk && changedFiles.length && guardOk && validateOk && score >= this.config.min_score_promote) {
+            updateUI("COMMIT", "准备提交", objective);
+            const [commitOk, commitMsg] = await this._commitCandidate(worktree, cycle, objective, tool.name, score);
+            let mergeOk = false;
+            let mergeMsg = "未执行 merge";
+            if (commitOk) {
+              updateUI("MERGE", "合并到主分支", objective);
+              const r = await this._mergeBranch(branch);
+              mergeOk = r[0];
+              mergeMsg = r[1];
+            }
+            if (commitOk && mergeOk) {
+              runtime.successful_promotions += 1;
+              runtime.last_tool = tool.name;
+              this._record(runtime, cycle, "PROMOTED", `晋升成功: ${mergeMsg}`, score, tool.name, changedFiles.length);
+              updateUI("DONE", "进化成功并合并", objective);
+              span.setStatus({ code: SpanStatusCode.OK });
+            } else {
+              runtime.failed_cycles += 1;
+              this._record(runtime, cycle, "FAIL", `提交/合并失败: ${commitMsg} / ${mergeMsg}`, score, tool.name, changedFiles.length);
+              updateUI("FAIL", "提交/合并受阻");
+              span.setStatus({ code: SpanStatusCode.ERROR, message: "提交/合并受阻" });
+            }
+          } else {
+            const reason = !toolOk ? "工具执行失败" : (!changedFiles.length ? "无代码改动" : (!guardOk ? `护栏拒绝 (${guardReason})` : `验证失败或得分低 (${score.toFixed(2)})`));
+            runtime.failed_cycles += 1;
+            this._record(runtime, cycle, "FAIL", reason, score, tool.name, changedFiles.length);
+            updateUI("FAIL", reason, objective);
+            span.setStatus({ code: SpanStatusCode.ERROR, message: reason });
+            
+            if (score < 0.5 && toolOk) {
+              this.tui.addLog(chalk.redBright(`[WARNING] 低分进化尝试，已自动舍弃。`));
+            }
+          }
+        } catch (err) {
+          logException(this.logger, err, `Cycle ${cycle} crashed`);
+          runtime.failed_cycles += 1;
+          this._record(runtime, cycle, "FAIL", `系统崩溃: ${String(err)}`, 0.0, tool.name);
+          updateUI("FAIL", "系统崩溃");
+          span.recordException(err as Error);
+          span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+        } finally {
+          await writeJson(runtimePath, runtime);
+          await this._cleanupWorktree(worktree, branch);
+          span.end();
+        }
+      } catch (outerErr) {
+        span.recordException(outerErr as Error);
+        span.end();
+        throw outerErr;
       }
-    } catch (err) {
-      logException(this.logger, err, `Cycle ${cycle} crashed`);
-      runtime.failed_cycles += 1;
-      this._record(runtime, cycle, "FAIL", `系统崩溃: ${String(err)}`, 0.0, tool.name);
-      updateUI("FAIL", "系统崩溃");
-    } finally {
-      await writeJson(runtimePath, runtime);
-      await this._cleanupWorktree(worktree, branch);
-    }
-    return true;
+      return true;
+    });
   }
 
   async _availableTools(): Promise<ToolSpec[]> {
@@ -540,70 +571,85 @@ export class DaoEvolver {
   }
 
   async _runTool(cycle: number, tool: ToolSpec, worktree: string, promptFile: string): Promise<[boolean, string]> {
-    let cmd = tool.run_cmd;
-    const replacements = { worktree, prompt_file: promptFile };
-    for (const [k, v] of Object.entries(replacements)) cmd = cmd.split(`{${k}}`).join(v);
-    
-    this.tui.setSubTask(tool.name, "running");
-    this._logCommand(`sh -c "${cmd}"`, { cwd: worktree, tool: tool.name });
-    
-    const proc = spawn("sh", ["-c", cmd], { 
-      cwd: worktree, 
-      stdio: ["ignore", "pipe", "pipe"],
-      detached: true
-    });
-    this._currentToolProc = proc;
-    const lines: string[] = [];
-    let lastOutput = Date.now();
+    return this.tracer.startActiveSpan(`Tool: ${tool.name}`, async (span: Span): Promise<[boolean, string]> => {
+      let cmd = tool.run_cmd;
+      const replacements = { worktree, prompt_file: promptFile };
+      for (const [k, v] of Object.entries(replacements)) cmd = cmd.split(`{${k}}`).join(v);
+      
+      span.setAttributes({
+        "tool.name": tool.name,
+        "tool.cmd": cmd,
+        "tool.worktree": worktree
+      });
 
-    const timer = setInterval(() => {
-      if (Date.now() - lastOutput > this.config.inactivity_timeout_sec * 1000) {
-        this.tui.addLog(chalk.redBright(`[TIMEOUT] 工具 ${tool.name} 无响应已超过 ${this.config.inactivity_timeout_sec}s`));
-        try { 
-          if (proc.pid) process.kill(-proc.pid, "SIGKILL"); 
-          else proc.kill("SIGKILL");
-        } catch {}
-        clearInterval(timer);
-      }
-    }, 1000);
+      this.tui.setSubTask(tool.name, "running");
+      this._logCommand(`sh -c "${cmd}"`, { cwd: worktree, tool: tool.name });
+      
+      const proc = spawn("sh", ["-c", cmd], { 
+        cwd: worktree, 
+        stdio: ["ignore", "pipe", "pipe"],
+        detached: true
+      });
+      this._currentToolProc = proc;
+      const lines: string[] = [];
+      let lastOutput = Date.now();
 
-    const processStream = (data: Buffer, stream: "stdout" | "stderr") => {
-      lastOutput = Date.now();
-      const raw = data.toString();
-      this._toolStream(cycle, tool.name, stream, raw.trim());
-      for (const line of raw.split(/\r?\n/).filter(l => l.trim())) {
-        const formatted = this._formatToolLog(tool.name, tool.parser, stream, line);
-        if (formatted) {
-          if (formatted.isDelta) this.tui.appendLog(formatted.text);
-          else this.tui.addLog(formatted.text);
-        } else {
-          this.tui.addLog(chalk.white(line.trim()));
+      const timer = setInterval(() => {
+        if (Date.now() - lastOutput > this.config.inactivity_timeout_sec * 1000) {
+          const timeoutMsg = `工具 ${tool.name} 无响应已超过 ${this.config.inactivity_timeout_sec}s`;
+          this.tui.addLog(chalk.redBright(`[TIMEOUT] ${timeoutMsg}`));
+          span.addEvent("Timeout", { message: timeoutMsg });
+          try { 
+            if (proc.pid) process.kill(-proc.pid, "SIGKILL"); 
+            else proc.kill("SIGKILL");
+          } catch {}
+          clearInterval(timer);
         }
-        lines.push(line);
+      }, 1000);
+
+      const processStream = (data: Buffer, stream: "stdout" | "stderr") => {
+        lastOutput = Date.now();
+        const raw = data.toString();
+        this._toolStream(cycle, tool.name, stream, raw.trim());
+        for (const line of raw.split(/\r?\n/).filter(l => l.trim())) {
+          const formatted = this._formatToolLog(tool.name, tool.parser, stream, line);
+          if (formatted) {
+            if (formatted.isDelta) this.tui.appendLog(formatted.text);
+            else this.tui.addLog(formatted.text);
+          } else {
+            this.tui.addLog(chalk.white(line.trim()));
+          }
+          lines.push(line);
+        }
+      };
+
+      proc.stdout.on("data", (d: Buffer) => processStream(d, "stdout"));
+      proc.stderr.on("data", (d: Buffer) => processStream(d, "stderr"));
+
+      const rc = await new Promise<number>(resolve => {
+        proc.on("close", (code: number | null) => {
+          this._currentToolProc = null;
+          resolve(code ?? 1);
+        });
+        proc.on("error", (err: Error) => {
+          this._currentToolProc = null;
+          span.recordException(err);
+          resolve(1);
+        });
+      });
+      clearInterval(timer);
+      
+      const ok = (rc === 0 || lines.length > 5);
+      if (!ok) {
+        this.tui.addLog(chalk.redBright(`[FAIL] 工具 ${tool.name} 执行异常 (Exit: ${rc})`));
+        span.setStatus({ code: SpanStatusCode.ERROR, message: `Exit ${rc}` });
+      } else {
+        span.setStatus({ code: SpanStatusCode.OK });
       }
-    };
-
-    proc.stdout.on("data", (d: Buffer) => processStream(d, "stdout"));
-    proc.stderr.on("data", (d: Buffer) => processStream(d, "stderr"));
-
-    const rc = await new Promise<number>(resolve => {
-      proc.on("close", (code: number | null) => {
-        this._currentToolProc = null;
-        resolve(code ?? 1);
-      });
-      proc.on("error", () => {
-        this._currentToolProc = null;
-        resolve(1);
-      });
+      this.tui.setSubTask(tool.name, ok ? "success" : "fail", rc !== 0 ? `Exit ${rc}` : undefined);
+      span.end();
+      return [ok, lines.join("\n")];
     });
-    clearInterval(timer);
-    
-    const ok = (rc === 0 || lines.length > 5);
-    if (!ok) {
-      this.tui.addLog(chalk.redBright(`[FAIL] 工具 ${tool.name} 执行异常 (Exit: ${rc})`));
-    }
-    this.tui.setSubTask(tool.name, ok ? "success" : "fail", rc !== 0 ? `Exit ${rc}` : undefined);
-    return [ok, lines.join("\n")];
   }
 
   async _changedFiles(worktree: string): Promise<string[]> {
@@ -621,15 +667,23 @@ export class DaoEvolver {
   }
 
   async _validate(worktree: string): Promise<[boolean, string]> {
-    for (const cmd of this.config.validate_commands) {
-      this._logCommand(`验证执行: ${cmd}`);
-      const cp = spawnSync("sh", ["-c", cmd], { cwd: worktree, encoding: "utf-8" });
-      if (cp.status !== 0) {
-        const out = `${cp.stdout}\n${cp.stderr}`.trim();
-        return [false, `${cmd} 失败: ${out.slice(0, 1000)}`];
+    return this.tracer.startActiveSpan("Validate", async (span: Span): Promise<[boolean, string]> => {
+      for (const cmd of this.config.validate_commands) {
+        this._logCommand(`验证执行: ${cmd}`);
+        span.addEvent("Running Validation", { command: cmd });
+        const cp = spawnSync("sh", ["-c", cmd], { cwd: worktree, encoding: "utf-8" });
+        if (cp.status !== 0) {
+          const out = `${cp.stdout}\n${cp.stderr}`.trim();
+          span.setStatus({ code: SpanStatusCode.ERROR, message: `Validation failed: ${cmd}` });
+          span.setAttribute("error.output", out);
+          span.end();
+          return [false, `${cmd} 失败: ${out.slice(0, 1000)}`];
+        }
       }
-    }
-    return [true, "ok"];
+      span.setStatus({ code: SpanStatusCode.OK });
+      span.end();
+      return [true, "ok"];
+    });
   }
 
   _score(toolOk: boolean, changedFiles: string[], guardOk: boolean, validateOk: boolean): number {
