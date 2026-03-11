@@ -87,3 +87,7 @@ github action
 符号化：利用 tree-sitter 等工具生成精确的符号表，作为 AI 的导航地图。
 动态注入：不追求一次性处理所有代码，而是通过 LLM 编排，根据场景动态加载相关的代码片段。
 标准化导航：在库中引入类似 llms.txt 的 AI 友好型说明文件，作为知识库的“高速缓存”。
+
+### doc 确定性 ref
+-  nodejs
+  - `npm query`的解析器: <https://github.com/npm/cli/tree/latest/workspaces/arborist>

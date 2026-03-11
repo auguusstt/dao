@@ -50,10 +50,10 @@
         "./.dao/ref/github.com/pinojs/pino/v10.3.1/*"
       ],
       "@google/gemini-cli-core": [
-        "./.dao/ref/github.com/google-gemini/gemini-cli/v0.33.0"
+        "./.dao/ref/github.com/google-gemini/gemini-cli/v0.34.0-preview.0"
       ],
       "@google/gemini-cli-core/*": [
-        "./.dao/ref/github.com/google-gemini/gemini-cli/v0.33.0/*"
+        "./.dao/ref/github.com/google-gemini/gemini-cli/v0.34.0-preview.0/*"
       ],
       "@opentelemetry/api": [
         "./.dao/ref/github.com/open-telemetry/opentelemetry-js/v1.9.0"
