@@ -21,6 +21,7 @@ export class DaoPlanner {
   stateDir: string;
   logger = setupLogger("dao.planner");
   private _currentProc: ChildProcess | null = null;
+  private eventsPath: string;
 
   constructor(root: string) {
     this.root = root;
@@ -28,6 +29,7 @@ export class DaoPlanner {
     this.roadmapPath = path.join(root, "ROADMAP.md");
     this.logsDir = path.join(root, "logs");
     this.stateDir = path.join(root, "state");
+    this.eventsPath = path.join(this.logsDir, "evolution_events.jsonl");
   }
 
   cleanup() {
@@ -45,16 +47,27 @@ export class DaoPlanner {
     tool: { name: string; run_cmd: string },
     onLog?: (msg: string) => void
   ): Promise<PlanResult | null> {
-    // 这里我们不再使用 onLog 封装，而是直接操作 stdout 保证“纯转发”
+    // 这里我们不再使用 onLog 封装，而是直接操作 stdout 保证"纯转发"
     
     const agents = await this._safeRead(this.agentsPath);
     const roadmap = await this._safeRead(this.roadmapPath);
     const recentEvents = await this._getRecentEvents(15);
     const eventSummary = this._summarizeEvents(recentEvents);
+    const promotedPatterns = await this._getRecentPromotedPatterns(5);
 
     const failureModesStr = Object.entries(eventSummary.commonFailureModes)
       .map(([mode, count]) => `   - ${mode}: ${count} 次`)
       .join("\n") || "   无显著失败模式";
+
+    // 构建 Few-shot 示例
+    const fewshotStr = promotedPatterns.length > 0
+      ? promotedPatterns.map((p: { cycle: number; changes: { file: string; additions: number; deletions: number }[]; objective: string | null }, i: number) => {
+          const changesStr = p.changes.map((c: { file: string; additions: number; deletions: number }) => 
+            `     - ${c.file}: ${c.additions}行新增, ${c.deletions}行删除`
+          ).join("\n");
+          return `   示例${i + 1} [cycle=${p.cycle}]:\n${changesStr}\n     目标: ${p.objective || '未记录'}`;
+        }).join("\n")
+      : "   暂无成功晋升记录";
 
     const prompt = `你是本项目的"大脑" (Planner Agent)。你的任务是分析当前进化状态，并规划接下来的具体目标。
 
@@ -71,6 +84,13 @@ ${roadmap}
 
 ### 4. 失败模式
 ${failureModesStr}
+
+### 5. 最近成功晋升的改动模式 (Few-shot 示例)
+${fewshotStr}
+
+**要求**: next_objective 必须包含明确的文件路径和改动类型，例如:
+- "在 src/dao_guardian/evolve.ts 中添加心跳检测逻辑"
+- "修改 src/common/fs.ts 的错误处理函数"
 
 请直接输出 JSON，包含 thought, next_objective, next_actions。`;
 
@@ -183,5 +203,57 @@ ${failureModesStr}
       }
     }
     return { totalCycles: total, successRate: successCount / total, consecutiveFailures, commonFailureModes: modes };
+  }
+
+  /**
+   * 获取最近 N 次成功晋升的改动模式
+   * 返回格式: [{ cycle, changes: [{file, additions, deletions}], objective }]
+   */
+  private async _getRecentPromotedPatterns(n: number): Promise<any[]> {
+    const p = this.eventsPath;
+    try {
+      const data = await fs.readFile(p, "utf-8");
+      const lines = data.split("\n").filter(Boolean);
+      // 从后往前找 PROMOTED 记录
+      const promoted = lines.reverse().filter((line: string) => {
+        try {
+          const obj = JSON.parse(line);
+          return obj.status === "PROMOTED";
+        } catch { return false; }
+      }).slice(0, n);
+
+      return promoted.map((line: string) => {
+        const obj = JSON.parse(line);
+        // 从 reason 字段解析改动信息，格式如:
+        // "晋升成功: Updating 8ce5fd9..927b1e0\nFast-forward\n src/dao_guardian/logging_utils.ts | 60 +++++++++++++++++...\n"
+        const changes = this._parseChangePattern(obj.reason || "");
+        return {
+          cycle: obj.cycle,
+          changes,
+          objective: obj.objective || null,
+          tool: obj.tool
+        };
+      });
+    } catch { return []; }
+  }
+
+  /**
+   * 从晋升原因中解析文件改动模式
+   */
+  private _parseChangePattern(reason: string): { file: string; additions: number; deletions: number }[] {
+    const changes: { file: string; additions: number; deletions: number }[] = [];
+    // 匹配格式: "src/dao_guardian/logging_utils.ts | 60 ++++++++++++++++++++---"
+    // 或: "README.md | 3 +++"
+    const regex = /^\s*([^|]+?)\s*\|\s*(\d+)\s+([^\n]*)$/gm;
+    let match;
+    while ((match = regex.exec(reason)) !== null) {
+      const file = match[1].trim();
+      const lineCount = parseInt(match[2], 10);
+      const changeStr = match[3];
+      const additions = (changeStr.match(/\+/g) || []).length;
+      const deletions = (changeStr.match(/-/g) || []).length;
+      changes.push({ file, additions, deletions });
+    }
+    return changes;
   }
 }
