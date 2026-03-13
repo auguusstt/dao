@@ -120,6 +120,12 @@ async function processPackage(
   config?: ProjectConfig
 ): Promise<SyncResult | null> {
   try {
+    // 跳过本地 workspace 依赖
+    if (version.startsWith("workspace:")) {
+      log.debug(`[${name}] 跳过本地 Workspace 依赖`);
+      return null;
+    }
+
     const override = config?.overrides?.[name];
     
     // 1. 获取仓库元数据 (优先从缓存读取)
@@ -248,17 +254,17 @@ export async function syncDependencies(): Promise<void> {
   }
 
   const pkg: PackageJson = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-  const dependencies = pkg.dependencies || {};
+  const allDeps = { ...(pkg.dependencies || {}), ...((pkg as any).devDependencies || {}) };
   const globalRefBase = path.join(GLOBAL_CACHE_DIR, "ref");
   const projectRefBase = path.resolve(process.cwd(), ".dao", "ref");
 
-  log.info(`开始同步 ${Object.keys(dependencies).length} 个依赖...`);
+  log.info(`开始同步 ${Object.keys(allDeps).length} 个依赖...`);
   const startTime = Date.now();
   const syncResults: Record<string, SyncResult> = {};
 
   // 顺序处理每个包
-  for (const [name, version] of Object.entries(dependencies)) {
-    const result = await processPackage(name, version, globalRefBase, projectRefBase, projectConfig);
+  for (const [name, version] of Object.entries(allDeps)) {
+    const result = await processPackage(name, version as string, globalRefBase, projectRefBase, projectConfig);
     if (result) syncResults[name] = result;
   }
 
@@ -275,10 +281,18 @@ export async function syncDependencies(): Promise<void> {
     const currentPaths = parsedTsConfig?.compilerOptions?.paths || {};
     const newPaths = { ...currentPaths };
 
-    // 映射 success 级别到 logger 的 info 级别，虽然它是自定义级别
-    // 我们不需要显式在 paths 映射 success，只需在代码中通过 pino 使用
-    
-    for (const [name, paths] of Object.entries(syncResults)) {
+    for (const [name, version] of Object.entries(allDeps)) {
+      if ((version as string).startsWith("workspace:")) {
+        // 如果是本地 workspace 包，且已经有 paths 映射，则保留它，不要覆盖
+        if (newPaths[name]) {
+          configLog.debug(`[${name}] 保留现有的本地 Workspace 映射`);
+          continue;
+        }
+      }
+
+      const paths = syncResults[name];
+      if (!paths) continue;
+
       const { relativePath, absolutePath } = paths;
       let entry = "";
       // 优先尝试映射到编译后的目录，减少 TS 扫描源码的压力

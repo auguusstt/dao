@@ -90,6 +90,12 @@
       ],
       "@opentelemetry/semantic-conventions/*": [
         "./.dao/ref/github.com/open-telemetry/opentelemetry-js/1.40.0/*"
+      ],
+      "@whonb/devtools": [
+        "./packages/devtools/index.ts"
+      ],
+      "@whonb/devtools/*": [
+        "./packages/devtools/*"
       ]
     }
   },
@@ -102,7 +108,6 @@
     "build",
     ".dao",
     ".worktrees",
-    "*.ts",
-    "*.js"
+    "packages"
   ]
 }
