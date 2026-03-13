@@ -7,7 +7,7 @@
 /* eslint-disable no-console */
 
 import { SimpleGeminiAgent } from '../simple-agent.js';
-import { GeminiEventType } from '@google/gemini-cli-core';
+import { GeminiEventType, ServerGeminiStreamEvent } from '@google/gemini-cli-core';
 
 async function main() {
   const abort = new AbortController();
@@ -32,50 +32,49 @@ async function main() {
 
   console.log('--- ⚓️ 海盗助手正在登船... ---\n');
 
-  try {
-    // 2. 发起询问
-    const stream = agent.ask(
-      '帮我看看当前目录下都有哪些文件？',
-      abort.signal,
-    );
 
-    // 3. 处理流式响应
-    for await (const event of stream) {
-      switch (event.type) {
-        case GeminiEventType.Content:
-          if (typeof event.value === 'string') {
-            process.stdout.write(event.value);
-          }
-          break;
+  // 2. 发起询问
+  const stream = agent.ask(
+    '帮我看看当前目录下都有哪些文件？',
+    abort.signal,
+  );
 
-        case GeminiEventType.ToolCallRequest:
-          console.log(`\n\n[🦜 鹦鹉传信：模型想要调用 ${event.value.name}...]`);
-          break;
+  // 3. 处理流式响应
+  for await (const event of stream) {
+    const e:ServerGeminiStreamEvent=event;
+    
+    switch (event.type) {
+      case GeminiEventType.Content:
+              // console.log(event.
 
-        case GeminiEventType.ToolCallResponse:
-          console.log(`[✅ 船员汇报：工具执行完毕]`);
-          break;
+        if (typeof event.value === 'string') {
+          process.stdout.write("> "+event.value);
+        }
+        break;
 
-        case GeminiEventType.Error:
-          console.error('\n❌ 触礁了：', event.value);
-          break;
+      case GeminiEventType.ToolCallRequest:
+        console.log(`\n\n[🦜 鹦鹉传信：模型想要调用 ${event.value.name}...]`);
+        break;
 
-        default:
-          // 忽略其他事件类型
-          break;
-      }
-    }
-    console.log('\n\n--- 🏁 汇报完毕，船长！ ---');
-  } catch (error: unknown) {
-    if (error instanceof Error && error.name === 'AbortError') {
-      console.log('任务已取消。');
-    } else {
-      console.error('致命错误：', error);
+      case GeminiEventType.ToolCallResponse:
+        console.log(`[✅ 船员汇报：工具执行完毕]`);
+        break;
+
+      case GeminiEventType.Error:
+        console.error('\n❌ 触礁了：', event.value);
+        break;
+
+      default:
+        // 忽略其他事件类型
+        break;
     }
   }
+  console.log('\n\n--- 🏁 汇报完毕，船长！ ---');
+  
+  await sleep(150*1000);
 }
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-main().catch((err) => {
-  console.error('未捕获的错误：', err);
-  process.exit(1);
-});
+
+
+await main()

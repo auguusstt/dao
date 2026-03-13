@@ -70,7 +70,7 @@ export class SimpleGeminiAgent {
     await this.config.initialize();
 
     // 3. 初始化核心客户端
-    const client = this.config.getGeminiClient();
+    const client = this.config.geminiClient;
     await client.initialize();
 
     this.initialized = true;
