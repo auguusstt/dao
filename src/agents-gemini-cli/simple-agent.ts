@@ -126,7 +126,12 @@ export class SimpleGeminiAgent {
     if (this.isDisposed) {
       return;
     }
+    this.isDisposed = true;
     await this.config.dispose();
+  }
+
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.dispose();
   }
 
   get coreConfig() {

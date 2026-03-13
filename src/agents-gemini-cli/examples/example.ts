@@ -13,7 +13,7 @@ async function main() {
   const abort = new AbortController();
 
   // 1. 创建 Agent 实例
-  const agent = new SimpleGeminiAgent({
+  await using agent = new SimpleGeminiAgent({
     instructions:
       '你是一个专业的终端助手，总是使用海盗的口吻说话。你可以使用工具来查看文件。',
     // model: 'auto', // 默认即为 auto
@@ -21,12 +21,13 @@ async function main() {
   });
 
   // 捕获 Ctrl+C
-  process.on('SIGINT', async () => {
+  process.on('SIGINT', () => {
     console.log('\n\n🚢 正在紧急下锚（取消并退出）...');
     abort.abort();
-    await agent.dispose()
     process.exitCode = 0;
-    setImmediate(() => process.exit(0));
+    // 使用 await using 时，由 Node.js 确保在退出前完成资源的 asyncDispose
+    // 不过这里是异步退出，如果直接 process.exit(0) 可能会跳过 dispose
+    // 更好的做法是触发 abort，让 loop 结束，然后 main 函数自然退出。
   });
 
   console.log('--- ⚓️ 海盗助手正在登船... ---\n');
@@ -71,8 +72,6 @@ async function main() {
     } else {
       console.error('致命错误：', error);
     }
-  } finally {
-    await agent.dispose();
   }
 }
 

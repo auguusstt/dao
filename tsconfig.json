@@ -101,6 +101,7 @@
     "dist",
     "build",
     ".dao",
+    ".worktrees",
     "*.ts",
     "*.js"
   ]

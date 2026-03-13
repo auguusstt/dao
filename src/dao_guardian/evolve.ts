@@ -411,7 +411,7 @@ export class DaoEvolver {
         try {
           updateUI("RUN_TOOL", `执行智能进化: ${tool.name}`, objective);
           const promptFile = await this._buildPromptFile(worktree, cycle, objective);
-          const [toolOk, toolOut] = await this._runTool(cycle, tool, worktree, promptFile);
+          let [toolOk, toolOut] = await this._runTool(cycle, tool, worktree, promptFile);
           
           let [validateOk, validateDetail] = await this._validate(worktree);
           
@@ -425,6 +425,7 @@ export class DaoEvolver {
             
             const [healOk, healOut] = await this._runTool(cycle, tool, worktree, healFile);
             toolOk = healOk;
+            toolOut = healOut; // Ensure toolOut is also updated if needed
             const [v2Ok, v2Detail] = await this._validate(worktree);
             validateOk = v2Ok;
             validateDetail = v2Detail;
