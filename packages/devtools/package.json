@@ -4,6 +4,11 @@
   "type": "module",
   "main": "index.js",
   "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
   "dependencies": {
     "ws": "^8.16.0"
   },

@@ -1,13 +1,12 @@
 {
-  "extends": "../../tsconfig.json",
+  "extends": "../../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "dist/src",
-    "declaration": true,
-    "sourceMap": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "noEmit": false,
-    "composite": false,
-    "incremental": false,
-    "verbatimModuleSyntax": false
+    "outDir": "dist",
+    "skipLibCheck": true
   },
-  "include": ["src"]
+  "include": ["src", "index.ts"],
+  "exclude": ["client", "node_modules", "dist"]
 }

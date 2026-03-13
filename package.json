@@ -11,10 +11,16 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
+    "build:all": "npm run build && npm run build --workspaces --if-present",
     "format": "prettier --write .",
     "test": "vitest run",
     "check": "tsc --noEmit && eslint . --ext .ts,.tsx",
-    "postinstall": "tsx src/dao_guardian/cli.ts sync"
+    "check:all": "npm run check && npm run check --workspaces --if-present",
+    "postinstall": "tsx src/dao_guardian/cli.ts sync",
+    "start:evolver": "tsx src/dao_guardian/cli.ts",
+    "sync": "tsx src/dao_guardian/cli.ts sync",
+    "example:pirate": "tsx src/agents-gemini-cli/examples/example.ts",
+    "clean:all": "rm -rf dist && npm run clean --workspaces --if-present"
   },
   "dependencies": {
     "@google/gemini-cli-core": "^0.34.0-preview.0",
