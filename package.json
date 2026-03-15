@@ -16,11 +16,11 @@
     "test": "vitest run",
     "check": "tsc --noEmit && eslint . --ext .ts,.tsx",
     "check:all": "npm run check && npm run check --workspaces --if-present",
-    "postinstall": "tsx packages/dao-cli/src/dao/cli.ts sync",
-    "evolve": "tsx packages/dao-cli/src/dao/cli.ts",
-    "sync": "tsx packages/dao-cli/src/dao/cli.ts sync",
-    "example:pirate": "tsx packages/agents-gemini-cli/examples/example.ts",
-    "clean:all": "rm -rf dist && npm run clean --workspaces --if-present"
+    "evolve": "tsx --tsconfig tsconfig.build.json packages/dao-cli/src/dao/cli.ts",
+    "sync": "tsx --tsconfig tsconfig.build.json packages/dao-cli/src/dao/cli.ts sync",
+    "example:pirate": "tsx --tsconfig tsconfig.build.json packages/agents-gemini-cli/examples/example.ts",
+    "clean:all": "rm -rf dist && npm run clean --workspaces --if-present",
+    "postinstall":"npm run sync"
   },
   "dependencies": {
   },
