@@ -19,49 +19,6 @@
 1. **重新加载**: 每次工作前重新加载上下文文件。
 2. **查阅优先**: 每次工作前,先查资料再工作,查阅顺序为: 本项目问题查本项目代码 > 项目依赖问题查 `.dao/ref` 到依赖源代码 > 没有依赖源代码查 `node_modules` > 最后查网上资料。查阅时需对齐版本号。
 
-## 开发工作流 (Standard Workflow)
-
-### Git Worktree 开发流程 (强制)
-
-本项目采用 **Worktree 隔离开发模式**，主分支 (main) 保持稳定，不直接修改。
-
-**开发流程：**
-
-1. **创建 worktree** - 开始新功能前必须执行：
-   ```bash
-   ./sha.sh worktree add dao-feature-<name>
-   # 例：./sha.sh worktree add dao-feature-auth
-   ```
-   这将在 `.worktrees/dao-feature-<name>` 创建独立的开发环境
-
-2. **进入 worktree 开发**：
-   ```bash
-   cd .worktrees/dao-feature-<name>
-   # 进行开发、测试、提交
-   ```
-
-3. **合并回 main** - 开发完成后必须执行：
-   ```bash
-   ./sha.sh worktree merge dao-feature-<name>
-   ```
-   此命令会自动：
-   - 运行测试验证
-   - 更新 main 分支
-   - 合并 worktree 分支
-   - 清理临时 worktree
-
-**常用命令：**
-```bash
-./sha.sh worktree list                # 查看所有 worktree 状态
-./sha.sh worktree help                # 显示完整帮助
-```
-
-**AI Agent 守则：**
-- ⚠️ **禁止** 直接在 main 分支进行修改
-- ⚠️ **禁止** 绕过 `./sha.sh worktree` 脚本创建分支
-- ✅ 每次开发前必须通过 `./sha.sh worktree add` 创建隔离环境
-- ✅ 合并前确保测试通过
-
 ---
 
 ### 标准开发规范
@@ -82,11 +39,47 @@
 
 <!-- DAO_DEPS_START -->
 <!-- 自动生成，请勿手动修改 (Auto-generated, do not edit manually) -->
-- @eslint/js: ^9.21.0 , source: .dao/ref/github.com/eslint/eslint/v9.21.0/packages/js
-- @types/node: ^22.0.0 , source: .dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/22.0.0/types/node
-- eslint: ^9.21.0 , source: .dao/ref/github.com/eslint/eslint/v9.21.0
-- tsx: ^4.7.0 , source: .dao/ref/github.com/privatenumber/tsx/v4.7.0
-- typescript: ^5.6.3 , source: .dao/ref/github.com/microsoft/TypeScript/v5.6.3
-- typescript-eslint: ^8.25.0 , source: .dao/ref/github.com/typescript-eslint/typescript-eslint/v8.25.0/packages/typescript-eslint
-- vitest: ^3.0.0 , source: .dao/ref/github.com/vitest-dev/vitest/v3.0.0/packages/vitest
+- @whonb/dao@0.1.0
+  - @eslint/js: ^9.21.0 , source: .dao/ref/github.com/eslint/eslint/v9.21.0/packages/js
+  - @types/node: ^22.0.0 , source: .dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/22.0.0/types/node
+  - eslint: ^9.21.0 , source: .dao/ref/github.com/eslint/eslint/v9.21.0
+  - tsx: ^4.7.0 , source: .dao/ref/github.com/privatenumber/tsx/v4.7.0
+  - typescript: ^5.6.3 , source: .dao/ref/github.com/microsoft/TypeScript/v5.6.3
+  - typescript-eslint: ^8.25.0 , source: .dao/ref/github.com/typescript-eslint/typescript-eslint/v8.25.0/packages/typescript-eslint
+  - vitest: ^3.0.0 , source: .dao/ref/github.com/vitest-dev/vitest/v3.0.0/packages/vitest
+- @whonb/agents-gemini-cli@0.1.0
+  - @google/gemini-cli-core: ^0.34.0-preview.0
+- @whonb/dao-cli@0.1.0
+  - @google/gemini-cli-core: ^0.34.0-preview.0
+  - @mariozechner/pi-tui: ^0.57.1
+  - @opentelemetry/api: ^1.9.0
+  - @opentelemetry/exporter-trace-otlp-grpc: ^0.213.0
+  - @opentelemetry/exporter-trace-otlp-http: ^0.213.0
+  - @opentelemetry/resources: ^2.6.0
+  - @opentelemetry/sdk-trace-base: ^2.6.0
+  - @opentelemetry/semantic-conventions: ^1.40.0
+  - @types/marked: ^5.0.2
+  - @types/node: ^22.0.0 , source: .dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/22.0.0/types/node
+  - @types/ws: ^8.18.1
+  - @whonb/agents-gemini-cli: *
+  - @whonb/devtools: *
+  - chalk: ^5.6.2
+  - commander: ^14.0.1
+  - get-east-asian-width: ^1.5.0
+  - jsonc-parser: ^3.3.1
+  - marked: ^17.0.4
+  - pino: ^10.3.1
+  - pino-pretty: ^13.1.3
+  - ws: ^8.19.0
+- @whonb/dao-tui@0.1.0
+  - @mariozechner/pi-tui: ^0.57.1
+  - @types/node: ^22.0.0 , source: .dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/22.0.0/types/node
+  - @types/yoga-layout: ^1.9.2
+  - chalk: ^5.6.2
+  - typescript: ^5.0.0 , source: .dao/ref/github.com/microsoft/TypeScript/v5.6.3
+  - yoga-layout: ^3.2.1
+  - yoga-layout-prebuilt: ^1.10.0
+- @whonb/devtools@0.1.0
+  - @types/ws: ^8.5.10
+  - ws: ^8.16.0
 <!-- DAO_DEPS_END -->

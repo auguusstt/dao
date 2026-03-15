@@ -317,7 +317,7 @@ async function processPackage(
 /**
  * 更新 AGENTS.md 中的依赖列表
  */
-function updateAgentsMdWithDeps(deps: Record<string, string>, syncResults: Record<string, SyncResult> = {}): void {
+function updateAgentsMdWithDeps(workspacePackages: Map<string, WorkspaceInfo>, syncResults: Record<string, SyncResult> = {}): void {
   const agentsMdPath = path.resolve(process.cwd(), "AGENTS.md");
   if (!fs.existsSync(agentsMdPath)) return;
 
@@ -328,17 +328,35 @@ function updateAgentsMdWithDeps(deps: Record<string, string>, syncResults: Recor
     const startTag = "<!-- DAO_DEPS_START -->";
     const endTag = "<!-- DAO_DEPS_END -->";
     const warning = "<!-- 自动生成，请勿手动修改 (Auto-generated, do not edit manually) -->";
-    
-    const depList = Object.entries(deps)
-      .map(([name, version]) => {
-        const res = syncResults[name];
+
+    const depLines: string[] = [];
+
+    // 对 workspacePackages 进行排序，使根目录排在前面，然后按名称字母排序
+    const sortedWorkspacePackages = Array.from(workspacePackages.values()).sort((a, b) => {
+      if (a.relativePath === "." && b.relativePath !== ".") return -1;
+      if (a.relativePath !== "." && b.relativePath === ".") return 1;
+      return a.name.localeCompare(b.name);
+    });
+
+    for (const pkgInfo of sortedWorkspacePackages) {
+      depLines.push(`- ${pkgInfo.name}@${pkgInfo.version || "unknown"}`);
+
+      const combinedDeps = { ...pkgInfo.dependencies, ...pkgInfo.devDependencies };
+      // 按照依赖名称排序
+      const sortedDeps = Object.entries(combinedDeps).sort(([nameA], [nameB]) => nameA.localeCompare(nameB));
+
+      for (const [depName, depVersion] of sortedDeps) {
+        const res = syncResults[depName];
+        let depLine = `  - ${depName}: ${depVersion}`;
         if (res) {
           const cleanPath = res.relativePath.startsWith("./") ? res.relativePath.slice(2) : res.relativePath;
-          return `- ${name}: ${version} , source: ${cleanPath}`;
+          depLine += ` , source: ${cleanPath}`;
         }
-        return `- ${name}: ${version}`;
-      })
-      .join("\n");
+        depLines.push(depLine);
+      }
+    }
+
+    const depList = depLines.join("\n");
     
     const newChunk = `${startTag}\n${warning}\n${depList}\n${endTag}`;
 
@@ -428,12 +446,7 @@ export async function syncDependencies(): Promise<void> {
   saveMetadataCache();
 
   // 更新 AGENTS.md 中的依赖列表
-  const displayDeps = { ...(pkg.dependencies || {}) };
-  // 如果是根目录（dependencies 为空），则把 devDependencies 也放进去，方便 AI 了解环境
-  if (Object.keys(displayDeps).length === 0 && (pkg as any).devDependencies) {
-    Object.assign(displayDeps, (pkg as any).devDependencies);
-  }
-  updateAgentsMdWithDeps(displayDeps, syncResults);
+  updateAgentsMdWithDeps(workspacePackages, syncResults);
 
   // 更新 tsconfig.ide.json
   if (fs.existsSync(tsConfigPath)) {
