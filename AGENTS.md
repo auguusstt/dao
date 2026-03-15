@@ -12,8 +12,8 @@
 
 ## 环境与目录规范
 - **ESM 优先**：本项目主要为 ESM 环境，修改代码前务必确认 `package.json` 中的 `"type": "module"` 标识。
-- **tsconfig 分工**: `tsconfig.json` 服务于 IDE 导航, `tsconfig.build.json` 服务于生产构建, `tsconfig.base.json` 服务于基础公共配置。
-- **禁止引用缓存**: 严禁在代码中直接 import/require `.dao/ref` 下的文件。必须使用依赖包的原始标准名称（如 `import chalk from "chalk"`），`.dao/ref`的目的是为IDE 通过根目录或子包 `tsconfig.json` 的 `paths` 映射来实现源码级导航。
+- **tsconfig 分工**: `tsconfig.json` 服务于默认运行(tsx)与生产构建, `tsconfig.ide.json` 服务于 IDE 源代码级导航, `tsconfig.base.json` 服务于基础公共配置。
+- **禁止引用缓存**: 严禁在代码中直接 import/require `.dao/ref` 下的文件。必须使用依赖包的原始标准名称（如 `import chalk from "chalk"`），`.dao/ref` 的目的是通过 `tsconfig.ide.json` 的 `paths` 映射来实现 IDE 源码级导航。
 
 ## 准确性规范 (Strict Source)
 1. **重新加载**: 每次工作前重新加载上下文文件。

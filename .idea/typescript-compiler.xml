@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="TypeScriptCompiler">
+    <option name="tsconfigDir" value="$PROJECT_DIR$" />
+    <option name="typeScriptServiceDirectory" value="$PROJECT_DIR$" />
+    <option name="useConfig" value="true" />
+    <option name="useConfigFile" value="true" />
+    <option name="configFile" value="$PROJECT_DIR$/tsconfig.ide.json" />
+  </component>
+</project>

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@whonb/dao-tui": [
+        "./src/index.ts"
+      ],
+      "@mariozechner/pi-tui": [
+        "./.dao/ref/github.com/badlogic/pi-mono/v0.57.1/packages/tui/src/index.ts"
+      ],
+      "@mariozechner/pi-tui/*": [
+        "./.dao/ref/github.com/badlogic/pi-mono/v0.57.1/packages/tui/src/*"
+      ],
+      "chalk": [
+        "./.dao/ref/github.com/chalk/chalk/v5.6.2"
+      ],
+      "chalk/*": [
+        "./.dao/ref/github.com/chalk/chalk/v5.6.2/*"
+      ]
+    }
+  },
+  "include": ["src", "examples"],
+  "exclude": ["node_modules", "dist"]
+}

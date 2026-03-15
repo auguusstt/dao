@@ -1,16 +1,15 @@
 {
-  "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "outDir": "dist",
-    "rootDir": "src",
+    "noEmit": true,
     "baseUrl": ".",
     "paths": {
-      "@whonb/dao-tui": ["./src/index.ts"]
+      "@google/gemini-cli-core": ["../../.dao/ref/github.com/google-gemini/gemini-cli/v0.34.0-preview.0"],
+      "@whonb/agents-gemini-cli": ["./src/index.ts"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "examples"],
   "exclude": ["node_modules", "dist"]
 }

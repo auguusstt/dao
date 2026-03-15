@@ -347,7 +347,7 @@ export async function syncDependencies(): Promise<void> {
   log.info(`sync start`);
 
   const pkgPath = path.resolve(process.cwd(), "package.json");
-  const tsConfigPath = path.resolve(process.cwd(), "tsconfig.json");
+  const tsConfigPath = path.resolve(process.cwd(), "tsconfig.ide.json");
   const projectConfigPath = path.resolve(process.cwd(), ".dao", "config.json");
 
   if (!fs.existsSync(pkgPath)) {
@@ -396,10 +396,10 @@ export async function syncDependencies(): Promise<void> {
 
   saveMetadataCache();
 
-  // 更新 tsconfig.json
+  // 更新 tsconfig.ide.json
   if (fs.existsSync(tsConfigPath)) {
     const configLog = logger.withTag("Config");
-    configLog.info("正在更新 tsconfig.json paths...");
+    configLog.info("正在更新 tsconfig.ide.json paths...");
     let content = fs.readFileSync(tsConfigPath, "utf-8");
     const options = { formattingOptions: { insertSpaces: true, tabSize: 2 } };
     
@@ -446,7 +446,7 @@ export async function syncDependencies(): Promise<void> {
     content = jsonc.applyEdits(content, edits);
     
     fs.writeFileSync(tsConfigPath, content);
-    configLog.info("tsconfig.json 更新成功！");
+    configLog.info("tsconfig.ide.json 更新成功！");
   }
 
   // 5. 处理 Agent 配置文件软链接 (让多 Agent 共享 AGENTS.md)

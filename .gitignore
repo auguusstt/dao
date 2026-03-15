@@ -29,3 +29,4 @@ src/agents-gemini-cli/devtools/client
 .idea/*
 !.idea/dictionaries/
 !.idea/dao.iml
+!.idea/typescript-compiler.xml

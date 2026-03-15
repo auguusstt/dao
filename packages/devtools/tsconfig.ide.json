@@ -3,9 +3,10 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "noEmit": false,
-    "outDir": "dist",
-    "skipLibCheck": true
+    "jsx": "react-jsx",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "noEmit": true
   },
   "include": ["src", "index.ts"],
   "exclude": ["client", "node_modules", "dist"]

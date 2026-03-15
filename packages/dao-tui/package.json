@@ -5,7 +5,7 @@
   "main": "dist/src/index.js",
   "private": true,
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.json",
     "check": "tsc --noEmit && eslint . --ext .ts,.tsx",
     "clean": "rm -rf dist"
   },

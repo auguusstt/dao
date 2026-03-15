@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@whonb/devtools": [
+        "./packages/devtools/index.ts"
+      ],
+      "@whonb/agents-gemini-cli": [
+        "./packages/agents-gemini-cli/src/index.ts"
+      ],
+      "@whonb/dao-cli": [
+        "./packages/dao-cli/src/main.ts"
+      ],
+      "@whonb/dao-tui": [
+        "./packages/dao-tui/src/index.ts"
+      ],
+      "@google/gemini-cli-core": [
+        "./.dao/ref/github.com/google-gemini/gemini-cli/v0.34.0-preview.0"
+      ],
+      "@google/gemini-cli-core/*": [
+        "./.dao/ref/github.com/google-gemini/gemini-cli/v0.34.0-preview.0/*"
+      ],
+      "@eslint/js": [
+        "./.dao/ref/github.com/eslint/eslint/v9.21.0/packages/js"
+      ],
+      "@eslint/js/*": [
+        "./.dao/ref/github.com/eslint/eslint/v9.21.0/packages/js/*"
+      ],
+      "@tsconfig/recommended": [
+        "./.dao/ref/github.com/tsconfig/bases/1.0.13/bases"
+      ],
+      "@tsconfig/recommended/*": [
+        "./.dao/ref/github.com/tsconfig/bases/1.0.13/bases/*"
+      ],
+      "@types/node": [
+        "./.dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/22.0.0/types/node"
+      ],
+      "@types/node/*": [
+        "./.dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/22.0.0/types/node/*"
+      ],
+      "@types/ws": [
+        "./.dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/8.18.1/types/ws"
+      ],
+      "@types/ws/*": [
+        "./.dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/8.18.1/types/ws/*"
+      ],
+      "eslint": [
+        "./.dao/ref/github.com/eslint/eslint/v9.21.0"
+      ],
+      "eslint/*": [
+        "./.dao/ref/github.com/eslint/eslint/v9.21.0/*"
+      ],
+      "pino-pretty": [
+        "./.dao/ref/github.com/pinojs/pino-pretty/v13.1.3"
+      ],
+      "pino-pretty/*": [
+        "./.dao/ref/github.com/pinojs/pino-pretty/v13.1.3/*"
+      ],
+      "tsup": [
+        "./.dao/ref/github.com/egoist/tsup/v8.4.0/src/index.ts"
+      ],
+      "tsup/*": [
+        "./.dao/ref/github.com/egoist/tsup/v8.4.0/src/*"
+      ],
+      "tsx": [
+        "./.dao/ref/github.com/privatenumber/tsx/v4.7.0"
+      ],
+      "tsx/*": [
+        "./.dao/ref/github.com/privatenumber/tsx/v4.7.0/*"
+      ],
+      "typescript": [
+        "./.dao/ref/github.com/microsoft/TypeScript/v5.6.3"
+      ],
+      "typescript/*": [
+        "./.dao/ref/github.com/microsoft/TypeScript/v5.6.3/*"
+      ],
+      "typescript-eslint": [
+        "./.dao/ref/github.com/typescript-eslint/typescript-eslint/v8.25.0/packages/typescript-eslint/src/index.ts"
+      ],
+      "typescript-eslint/*": [
+        "./.dao/ref/github.com/typescript-eslint/typescript-eslint/v8.25.0/packages/typescript-eslint/src/*"
+      ],
+      "vitest": [
+        "./.dao/ref/github.com/vitest-dev/vitest/v3.0.0/packages/vitest"
+      ],
+      "vitest/*": [
+        "./.dao/ref/github.com/vitest-dev/vitest/v3.0.0/packages/vitest/*"
+      ]
+    }
+  },
+  "include": ["packages/*/src"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    ".dao",
+    ".worktrees"
+  ]
+}
