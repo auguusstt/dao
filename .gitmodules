@@ -1,0 +1,4 @@
+[submodule "vendor/sha"]
+	path = vendor/sha
+	url = git@github.com:chen56/sha.git
+	branch = main
