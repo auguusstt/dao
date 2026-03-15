@@ -37,17 +37,10 @@
 <!-- DAO_DEPS_START -->
 <!-- 自动生成，请勿手动修改 (Auto-generated, do not edit manually) -->
 - @eslint/js: ^9.21.0
-- @tsconfig/recommended: ^1.0.13
 - @types/node: ^22.0.0
-- @types/ws: ^8.18.1
 - eslint: ^9.21.0
-- pino-pretty: ^13.1.3
-- tsup: ^8.4.0
 - tsx: ^4.7.0
 - typescript: ^5.6.3
 - typescript-eslint: ^8.25.0
 - vitest: ^3.0.0
-- @whonb/devtools: *
-- @whonb/agents-gemini-cli: *
-- @whonb/dao-cli: *
 <!-- DAO_DEPS_END -->

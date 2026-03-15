@@ -405,34 +405,40 @@ export async function syncDependencies(): Promise<void> {
     
     const parsedTsConfig = jsonc.parse(content);
     const currentPaths = parsedTsConfig?.compilerOptions?.paths || {};
-    const newPaths = { ...currentPaths };
+    const newPaths: Record<string, string[]> = {};
 
-    for (const [name, version] of Object.entries(allDeps)) {
-      if ((version as string).startsWith("workspace:")) {
-        // 如果是本地 workspace 包，且已经有 paths 映射，则保留它，不要覆盖
-        if (newPaths[name]) {
-          configLog.debug(`[${name}] 保留现有的本地 Workspace 映射`);
-          continue;
-        }
+    // 1. 保留现有的本地 workspace 映射
+    for (const [key, val] of Object.entries(currentPaths)) {
+      const baseName = key.endsWith("/*") ? key.slice(0, -2) : key;
+      if (workspacePackages.has(baseName)) {
+        newPaths[key] = val as string[];
       }
+    }
 
+    // 2. 添加新同步成功的映射
+    for (const [name, version] of Object.entries(allDeps)) {
       const paths = syncResults[name];
-      if (!paths) continue;
+      if (!paths) {
+        if ((version as string).startsWith("workspace:") && !newPaths[name]) {
+          configLog.debug(`[${name}] 本地 Workspace 包尚未建立映射，请手动配置或检查包名`);
+        }
+        continue;
+      }
 
       const { relativePath, absolutePath } = paths;
       let entry = "";
       // 优先尝试映射到编译后的目录，减少 TS 扫描源码的压力
       const candidates = ["dist/index.js", "build/index.js", "dist/index.d.ts", "src/index.ts", "src/tui.ts", "index.ts"];
       for (const cand of candidates) {
-          if (fs.existsSync(path.join(absolutePath, cand))) { 
-            // 如果找到的是 .js 或 .d.ts，我们映射到其目录或不带后缀的路径，让 TS 自己解析 package.json
-            if (cand.endsWith(".js") || cand.endsWith(".d.ts")) {
-              entry = ""; // 映射到根目录，靠 package.json 导航
-            } else {
-              entry = cand; 
-            }
-            break; 
+        if (fs.existsSync(path.join(absolutePath, cand))) { 
+          // 如果找到的是 .js 或 .d.ts，我们映射到其目录或不带后缀的路径，让 TS 自己解析 package.json
+          if (cand.endsWith(".js") || cand.endsWith(".d.ts")) {
+            entry = ""; // 映射到根目录，靠 package.json 导航
+          } else {
+            entry = cand; 
           }
+          break; 
+        }
       }
       const tsPath = entry ? `${relativePath}/${entry}` : relativePath;
       newPaths[name] = [tsPath];
