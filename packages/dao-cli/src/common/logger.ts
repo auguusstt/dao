@@ -10,7 +10,7 @@ export const logger = {
       target: "pino-pretty",
       options: {
         colorize: true,
-        ignore: "pid,hostname",
+        ignore: "pid,hostname,tag",
         translateTime: "HH:MM:ss",
       },
     },
@@ -24,11 +24,11 @@ export const logger = {
   withTag(tag: string) {
     const child = this.pino.child({ tag });
     return {
-      debug: (msg: string, ...args: any[]) => child.debug(msg, ...args),
-      info: (msg: string, ...args: any[]) => child.info(msg, ...args),
-      warn: (msg: string, ...args: any[]) => child.warn(msg, ...args),
-      error: (msg: string, ...args: any[]) => child.error(msg, ...args),
-      success: (msg: string, ...args: any[]) => child.info(msg, ...args),
+      debug: (msg: string, ...args: any[]) => child.debug(`[${tag}] ${msg}`, ...args),
+      info: (msg: string, ...args: any[]) => child.info(`[${tag}] ${msg}`, ...args),
+      warn: (msg: string, ...args: any[]) => child.warn(`[${tag}] ${msg}`, ...args),
+      error: (msg: string, ...args: any[]) => child.error(`[${tag}] ${msg}`, ...args),
+      success: (msg: string, ...args: any[]) => child.info(`[${tag}] ${msg}`, ...args),
     };
   },
 };
