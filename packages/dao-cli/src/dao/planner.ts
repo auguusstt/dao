@@ -26,7 +26,7 @@ export class DaoPlanner {
   constructor(root: string) {
     this.root = root;
     this.agentsPath = path.join(root, "AGENTS.md");
-    this.roadmapPath = path.join(root, "ROADMAP.md");
+    this.roadmapPath = path.join(root, "roadmap.md");
     this.logsDir = path.join(root, "logs");
     this.stateDir = path.join(root, "state");
     this.eventsPath = path.join(this.logsDir, "evolution_events.jsonl");
@@ -48,7 +48,7 @@ export class DaoPlanner {
     onLog?: (msg: string) => void
   ): Promise<PlanResult | null> {
     // 这里我们不再使用 onLog 封装，而是直接操作 stdout 保证"纯转发"
-    
+
     const agents = await this._safeRead(this.agentsPath);
     const roadmap = await this._safeRead(this.roadmapPath);
     const recentEvents = await this._getRecentEvents(15);
@@ -62,7 +62,7 @@ export class DaoPlanner {
     // 构建 Few-shot 示例
     const fewshotStr = promotedPatterns.length > 0
       ? promotedPatterns.map((p: { cycle: number; changes: { file: string; additions: number; deletions: number }[]; objective: string | null }, i: number) => {
-          const changesStr = p.changes.map((c: { file: string; additions: number; deletions: number }) => 
+          const changesStr = p.changes.map((c: { file: string; additions: number; deletions: number }) =>
             `     - ${c.file}: ${c.additions}行新增, ${c.deletions}行删除`
           ).join("\n");
           return `   示例${i + 1} [cycle=${p.cycle}]:\n${changesStr}\n     目标: ${p.objective || '未记录'}`;
@@ -102,16 +102,16 @@ ${fewshotStr}
     for (const [k, v] of Object.entries(replacements)) cmd = cmd.split(`{${k}}`).join(v);
 
     process.stdout.write(chalk.blueBright(`\n[Planner] 启动原始转发模式执行: ${cmd}\n`));
-    
+
     // 环境变量增加强制刷新输出的标志
-    const env = { 
-      ...process.env, 
-      FORCE_COLOR: "1", 
+    const env = {
+      ...process.env,
+      FORCE_COLOR: "1",
       PYTHONUNBUFFERED: "1",
-      NODE_ENV: "production" 
+      NODE_ENV: "production"
     };
 
-    const proc = spawn("sh", ["-c", cmd], { 
+    const proc = spawn("sh", ["-c", cmd], {
       cwd: this.root,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],

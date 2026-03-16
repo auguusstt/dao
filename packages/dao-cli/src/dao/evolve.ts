@@ -122,10 +122,10 @@ class EvoTUI {
 
     const width = process.stdout.columns || 80;
     const footerLines: string[] = [];
-    
+
     footerLines.push(chalk.cyan.bold("\n═══ DAO Evolution Terminal ═══"));
     footerLines.push(chalk.white("─".repeat(Math.min(50, width))));
-    
+
     let healthInfo = "";
     if (this.health) {
       const hColor = this.health.status === "healthy" ? chalk.greenBright : (this.health.status === "degraded" ? chalk.yellowBright : chalk.redBright);
@@ -133,13 +133,13 @@ class EvoTUI {
     }
     const statusLine = `${chalk.yellowBright("Cycle:")} ${chalk.whiteBright(this.cycle)}  ${chalk.white("│")}  ${chalk.yellowBright("Phase:")} ${chalk.bold.greenBright(this.phase)}  ${healthInfo}${chalk.white("│")}  ${chalk.cyanBright(this.message)}`;
     footerLines.push(truncateToWidth(statusLine, width));
-    
+
     if (this.health && this.health.status !== "healthy" && this.health.suggestion) {
       footerLines.push(chalk.yellowBright(`[Sug] ${this.health.suggestion}`));
     } else {
       footerLines.push(chalk.white("─".repeat(Math.min(50, width))));
     }
-    
+
     footerLines.push(chalk.blueBright.bold("进度树 Progress Tree:"));
     const phases = [
       "START", "PLANNING", "ENSURE_HEAD", "CHECK_CLEAN", "CHECK_TOOLS",
@@ -258,12 +258,12 @@ export class DaoEvolver {
     await ensureDir(this.stateDir);
     await ensureDir(this.logsDir);
     await ensureDir(this.worktreesDir);
-    
+
     this.config = await this._loadConfig();
     const [globalObjective, agentsExcerpt] = await this._loadAgentsContext();
     this.globalObjective = globalObjective;
     this.agentsExcerpt = agentsExcerpt;
-    
+
     const runtimePath = path.join(this.stateDir, "evolution_runtime.json");
     try {
       await fs.access(runtimePath);
@@ -284,12 +284,12 @@ export class DaoEvolver {
       isExiting = true;
       this.tui.restoreTTY();
       this.tui.addLog(chalk.yellowBright("\n[EXIT] 接收到退出信号，正在安全关闭并清理所有子进程..."));
-      
+
       this.planner.cleanup();
       if (this._currentToolProc && this._currentToolProc.pid) {
         try { process.kill(-this._currentToolProc.pid, "SIGKILL"); } catch {}
       }
-      
+
       process.exit(0);
     };
 
@@ -388,7 +388,7 @@ export class DaoEvolver {
         const tool = tools[(cycle - 1) % tools.length];
         const branch = `auto/evo-${new Date().toISOString().replace(/[:.]/g, "-")}-${cycle}`;
         const worktree = path.join(this.worktreesDir, "dao-1");
-        
+
         span.setAttributes({ "tool.name": tool.name, "git.branch": branch });
         await this._trace(cycle, "PLAN", "已选择工具与目标", {
           tool: tool.name,
@@ -412,24 +412,24 @@ export class DaoEvolver {
           updateUI("RUN_TOOL", `执行智能进化: ${tool.name}`, objective);
           const promptFile = await this._buildPromptFile(worktree, cycle, objective);
           let [toolOk, toolOut] = await this._runTool(cycle, tool, worktree, promptFile);
-          
+
           let [validateOk, validateDetail] = await this._validate(worktree);
-          
+
           if (!validateOk && toolOk) {
             updateUI("SELF_HEAL", "验证失败，启动自我修复...", objective);
             this.tui.addLog(chalk.yellowBright(`[Self-Heal] 检测到验证失败，正在将错误反馈给 Agent 修复...`));
-            
+
             const healPrompt = `你的改动在验证阶段失败了。请修复以下错误：\n\n${validateDetail}\n\n只返回修复后的代码或针对错误的补丁。`;
             const healFile = path.join(os.tmpdir(), `heal_prompt_${cycle}.txt`);
             await fs.writeFile(healFile, healPrompt, "utf-8");
-            
+
             const [healOk, healOut] = await this._runTool(cycle, tool, worktree, healFile);
             toolOk = healOk;
             toolOut = healOut; // Ensure toolOut is also updated if needed
             const [v2Ok, v2Detail] = await this._validate(worktree);
             validateOk = v2Ok;
             validateDetail = v2Detail;
-            
+
             if (validateOk) this.tui.addLog(chalk.greenBright(`[Self-Heal] 自我修复成功！`));
             else this.tui.addLog(chalk.redBright(`[Self-Heal] 自提修复后验证仍失败。`));
           }
@@ -476,7 +476,7 @@ export class DaoEvolver {
             this._record(runtime, cycle, "FAIL", reason, score, tool.name, changedFiles.length);
             updateUI("FAIL", reason, objective);
             span.setStatus({ code: SpanStatusCode.ERROR, message: reason });
-            
+
             if (score < 0.5 && toolOk) {
               this.tui.addLog(chalk.redBright(`[WARNING] 低分进化尝试，已自动舍弃。`));
             }
@@ -535,7 +535,7 @@ export class DaoEvolver {
 
   async _initRepo(): Promise<[boolean, string]> {
     spawnSync("git", ["init"], { cwd: this.root });
-    const addTargets = ["src", "package.json", "tsconfig.json", "config", "AGENTS.md", "README.md", "ROADMAP.md"];
+    const addTargets = ["src", "package.json", "tsconfig.json", "config", "AGENTS.md", "README.md", "roadmap.md"];
     spawnSync("git", ["add", ...addTargets], { cwd: this.root });
     const commit = spawnSync("git", ["commit", "-m", "chore: bootstrap dao-ts"], { cwd: this.root, encoding: "utf-8" });
     return (commit.status ?? 1) === 0 ? [true, "bootstrapped"] : [false, "Git 初始化失败"];
@@ -576,7 +576,7 @@ export class DaoEvolver {
       let cmd = tool.run_cmd;
       const replacements = { worktree, prompt_file: promptFile };
       for (const [k, v] of Object.entries(replacements)) cmd = cmd.split(`{${k}}`).join(v);
-      
+
       span.setAttributes({
         "tool.name": tool.name,
         "tool.cmd": cmd,
@@ -585,9 +585,9 @@ export class DaoEvolver {
 
       this.tui.setSubTask(tool.name, "running");
       this._logCommand(`sh -c "${cmd}"`, { cwd: worktree, tool: tool.name });
-      
-      const proc = spawn("sh", ["-c", cmd], { 
-        cwd: worktree, 
+
+      const proc = spawn("sh", ["-c", cmd], {
+        cwd: worktree,
         stdio: ["ignore", "pipe", "pipe"],
         detached: true
       });
@@ -600,8 +600,8 @@ export class DaoEvolver {
           const timeoutMsg = `工具 ${tool.name} 无响应已超过 ${this.config.inactivity_timeout_sec}s`;
           this.tui.addLog(chalk.redBright(`[TIMEOUT] ${timeoutMsg}`));
           span.addEvent("Timeout", { message: timeoutMsg });
-          try { 
-            if (proc.pid) process.kill(-proc.pid, "SIGKILL"); 
+          try {
+            if (proc.pid) process.kill(-proc.pid, "SIGKILL");
             else proc.kill("SIGKILL");
           } catch {}
           clearInterval(timer);
@@ -639,7 +639,7 @@ export class DaoEvolver {
         });
       });
       clearInterval(timer);
-      
+
       const ok = (rc === 0 || lines.length > 5);
       if (!ok) {
         this.tui.addLog(chalk.redBright(`[FAIL] 工具 ${tool.name} 执行异常 (Exit: ${rc})`));
@@ -770,7 +770,7 @@ export class DaoEvolver {
       plan.active_objective = this.config.objectives[0];
       await this._writePlan(plan);
     }
-    
+
     const nextActions = (plan.next_actions || []).map((i: any) => String(i).trim()).filter(Boolean);
     const objective = nextActions.length ? `${plan.active_objective} (动作: ${nextActions[0]})` : plan.active_objective;
     return [objective, plan];
@@ -810,14 +810,14 @@ export class DaoEvolver {
       const obj = JSON.parse(text);
       const type = obj?.type || obj?.subtype;
       if (type === "system" || type === "init") return { text: chalk.cyan(`[system] ${name} ready`), isDelta: false };
-      
+
       if (type === "stream_event") {
         const delta = obj?.event?.delta;
         if (delta?.type === "text_delta") return { text: delta.text, isDelta: true };
         if (delta?.type === "thinking_delta") return { text: chalk.whiteBright(delta.thinking), isDelta: true };
         return null;
       }
-      
+
       if (obj.type === "assistant") {
         const txt = obj.message?.content?.find((c: any) => c.type === "text")?.text;
         if (txt) return { text: chalk.white(txt), isDelta: false };
@@ -831,18 +831,18 @@ export class DaoEvolver {
         const usage = obj.usage || {};
         const input = usage.input_tokens || 0;
         const output = usage.output_tokens || 0;
-        
+
         let stats = chalk.greenBright.bold(`\n[Result] ${result}`);
         stats += chalk.white(`\n[Stats] Turns: ${turns} | Usage: ${input} in / ${output} out`);
-        
+
         if (text.includes("quota")) {
           const quotaMatch = text.match(/quota[^]*/i);
           if (quotaMatch) stats += chalk.yellow(`\n[Quota] ${quotaMatch[0].split("\n")[0]}`);
         }
-        
+
         return { text: stats + "\n", isDelta: false };
       }
-      
+
       const content = this._extractStreamText(obj);
       return content ? { text: chalk.white(content), isDelta: false } : null;
     } catch {

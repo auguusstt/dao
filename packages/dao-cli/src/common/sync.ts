@@ -21,8 +21,8 @@ function cleanExecOutput(output: string): string {
       if (!l) return false;
       if (l.startsWith("Agent pid")) return false;
       if (l.includes("load ~/.bashrc")) return false;
-      if (l.includes("Output: load")) return false;
-      return true;
+      return !l.includes("Output: load");
+
     })
     .join("\n")
     .trim();
@@ -136,19 +136,19 @@ function parseRepoUrl(url: string): RepoInfo | null {
   // 移除 git+ 前缀和 .git 后缀
   if (cleanUrl.startsWith("git+")) cleanUrl = cleanUrl.slice(4);
   if (cleanUrl.endsWith(".git")) cleanUrl = cleanUrl.slice(0, -4);
-  
+
   // 处理 git@ 格式
   if (cleanUrl.startsWith("git@")) {
     const match = cleanUrl.match(/^git@([^:]+):([^/]+)\/(.+)$/);
     if (match) return { host: match[1] as string, owner: match[2] as string, repo: match[3] as string };
   }
-  
+
   // 处理各种协议 (http, https, git)
   try {
     // 统一替换 git:// 为 https:// 以便 URL 解析，或者直接处理已有的 http/https
     const urlWithProtocol = cleanUrl.replace(/^git:\/\//, "https://");
     const urlObj = new URL(urlWithProtocol.includes("://") ? urlWithProtocol : `https://${urlWithProtocol}`);
-    
+
     const host = urlObj.host;
     const parts = urlObj.pathname.split("/").filter(Boolean);
     if (parts.length >= 2) return { host, owner: parts[0] as string, repo: parts[1] as string };
@@ -197,9 +197,9 @@ interface SyncResult {
 }
 
 async function processPackage(
-  name: string, 
+  name: string,
   version: string,
-  globalRefBase: string, 
+  globalRefBase: string,
   projectRefBase: string,
   config?: ProjectConfig,
   workspacePackages?: Map<string, WorkspaceInfo>
@@ -212,7 +212,7 @@ async function processPackage(
     }
 
     const override = config?.overrides?.[name];
-    
+
     // 1. 获取仓库元数据 (优先从缓存读取)
     let repoUrl = "";
     let subDir = "";
@@ -248,11 +248,11 @@ async function processPackage(
     }
 
     const cloneUrl = `https://${repoInfo.host}/${repoInfo.owner}/${repoInfo.repo}`;
-    
+
     // 2. 检查本地是否已下载
     const versionDirNameBase = version.replace(/^[\^~]/, "");
     const possibleNames = override?.tag ? [override.tag] : [versionDirNameBase, `v${versionDirNameBase}`];
-    
+
     let finalGlobalPath = "";
     for (const pName of possibleNames) {
         const p = path.join(globalRefBase, repoInfo.host, repoInfo.owner, repoInfo.repo, pName);
@@ -262,7 +262,7 @@ async function processPackage(
             break;
         }
     }
-    
+
     if (!finalGlobalPath) {
         log.info(`正在同步新源码: ${name}@${version}${override?.tag ? ` (Override Tag: ${override.tag})` : ""}`);
 
@@ -272,7 +272,7 @@ async function processPackage(
         } else {
             bestTag = getBestTag(cloneUrl, versionDirNameBase);
         }
-        
+
         // 优先使用 bestTag 作为目录名，如果没有则用版本号
         const finalDirName = bestTag || versionDirNameBase;
         finalGlobalPath = path.join(globalRefBase, repoInfo.host, repoInfo.owner, repoInfo.repo, finalDirName);
@@ -282,7 +282,12 @@ async function processPackage(
             const cloneCmd = `git clone --depth 1 ${branchCmd} ${cloneUrl} "${finalGlobalPath}"`;
             log.info(`[${name}] 执行克隆: ${cloneCmd}`);
             fs.mkdirSync(path.dirname(finalGlobalPath), { recursive: true });
-            execSync(cloneCmd, { stdio: "inherit" });
+            try {
+              execSync(cloneCmd, { stdio: ["ignore", "pipe", "pipe"] });
+            } catch (err: any) {
+              const stderr = err.stderr?.toString().trim() || err.message;
+              throw new Error(`Git clone 失败: ${stderr}`);
+            }
         }
     }
 
@@ -299,10 +304,10 @@ async function processPackage(
 
     const linkParent = path.dirname(projectRepoLink);
     if (!fs.existsSync(linkParent)) fs.mkdirSync(linkParent, { recursive: true });
-    
+
     const relativeTarget = path.relative(linkParent, finalGlobalPath);
     fs.symlinkSync(relativeTarget, projectRepoLink, "dir");
-    
+
     log.debug(`[${name}] 软连接建立成功: ${name} -> ${relativeRepoPath}`);
     return {
         relativePath: subDir ? `${relativeRepoPath}/${subDir}` : relativeRepoPath,
@@ -328,6 +333,7 @@ function updateAgentsMdWithDeps(workspacePackages: Map<string, WorkspaceInfo>, s
     const startTag = "<!-- DAO_DEPS_START -->";
     const endTag = "<!-- DAO_DEPS_END -->";
     const warning = "<!-- 自动生成，请勿手动修改 (Auto-generated, do not edit manually) -->";
+    const formatNote = "<!-- 依赖树格式说明: 格式为 `[包名@版本] -> [源代码目录]` , 第一层为本项目 Workspace 模块；缩进层为该模块的直接依赖；`->` 后缀指向该依赖的本地源代码映射路径，供 AI 精准分析源码。 -->";
 
     const depLines: string[] = [];
 
@@ -339,7 +345,7 @@ function updateAgentsMdWithDeps(workspacePackages: Map<string, WorkspaceInfo>, s
     });
 
     for (const pkgInfo of sortedWorkspacePackages) {
-      depLines.push(`- ${pkgInfo.name}@${pkgInfo.version || "unknown"}`);
+      depLines.push(`- ${pkgInfo.name}@${pkgInfo.version || "unknown"} -> ${pkgInfo.relativePath}`);
 
       const combinedDeps = { ...pkgInfo.dependencies, ...pkgInfo.devDependencies };
       // 按照依赖名称排序
@@ -347,18 +353,18 @@ function updateAgentsMdWithDeps(workspacePackages: Map<string, WorkspaceInfo>, s
 
       for (const [depName, depVersion] of sortedDeps) {
         const res = syncResults[depName];
-        let depLine = `  - ${depName}: ${depVersion}`;
+        let depLine = `  - ${depName}@${depVersion}`;
         if (res) {
           const cleanPath = res.relativePath.startsWith("./") ? res.relativePath.slice(2) : res.relativePath;
-          depLine += ` , source: ${cleanPath}`;
+          depLine += ` -> ${cleanPath}`;
         }
         depLines.push(depLine);
       }
     }
 
     const depList = depLines.join("\n");
-    
-    const newChunk = `${startTag}\n${warning}\n${depList}\n${endTag}`;
+
+    const newChunk = `${startTag}\n${warning}\n${formatNote}\n${depList}\n${endTag}`;
 
     const startIndex = content.indexOf(startTag);
     const endIndex = content.indexOf(endTag);
@@ -376,7 +382,7 @@ function updateAgentsMdWithDeps(workspacePackages: Map<string, WorkspaceInfo>, s
         let nextContentIndex = sectionIndex + 1;
         // 如果标题后紧跟了空行，跳过它
         if (lines[nextContentIndex]?.trim() === "") nextContentIndex++;
-        
+
         lines.splice(nextContentIndex, 0, "\n" + newChunk + "\n");
         content = lines.join("\n");
       } else {
@@ -423,14 +429,22 @@ export async function syncDependencies(): Promise<void> {
   }
 
   const pkg: PackageJson = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-  
-  const allDeps = { ...(pkg.dependencies || {}), ...((pkg as any).devDependencies || {}) };
+
+  // 汇总所有依赖：包括根目录和所有工作区子包的 dependencies + devDependencies
+  const workspacePackages = getWorkspacePackages();
+  const allDeps: Record<string, string> = {
+    ...(pkg.dependencies || {}),
+    ...((pkg as any).devDependencies || {})
+  };
+
+  for (const pkgInfo of workspacePackages.values()) {
+    Object.assign(allDeps, pkgInfo.dependencies, pkgInfo.devDependencies);
+  }
+
   const globalRefBase = path.join(GLOBAL_CACHE_DIR, "ref");
   const projectRefBase = path.resolve(process.cwd(), ".dao", "ref");
-  
-  const workspacePackages = getWorkspacePackages();
 
-  log.info(`开始同步 ${Object.keys(allDeps).length} 个依赖...`);
+  log.info(`开始同步 ${Object.keys(allDeps).length} 个依赖 (含所有子包 devDeps)...`);
   const startTime = Date.now();
   const syncResults: Record<string, SyncResult> = {};
   const entries = Object.entries(allDeps);
@@ -454,7 +468,7 @@ export async function syncDependencies(): Promise<void> {
     configLog.info("正在更新 tsconfig.ide.json paths...");
     let content = fs.readFileSync(tsConfigPath, "utf-8");
     const options = { formattingOptions: { insertSpaces: true, tabSize: 2 } };
-    
+
     const parsedTsConfig = jsonc.parse(content);
     const currentPaths = parsedTsConfig?.compilerOptions?.paths || {};
     const newPaths: Record<string, string[]> = {};
@@ -482,14 +496,14 @@ export async function syncDependencies(): Promise<void> {
       // 优先尝试映射到编译后的目录，减少 TS 扫描源码的压力
       const candidates = ["dist/index.js", "build/index.js", "dist/index.d.ts", "src/index.ts", "src/tui.ts", "index.ts"];
       for (const cand of candidates) {
-        if (fs.existsSync(path.join(absolutePath, cand))) { 
+        if (fs.existsSync(path.join(absolutePath, cand))) {
           // 如果找到的是 .js 或 .d.ts，我们映射到其目录或不带后缀的路径，让 TS 自己解析 package.json
           if (cand.endsWith(".js") || cand.endsWith(".d.ts")) {
             entry = ""; // 映射到根目录，靠 package.json 导航
           } else {
-            entry = cand; 
+            entry = cand;
           }
-          break; 
+          break;
         }
       }
       const tsPath = entry ? `${relativePath}/${entry}` : relativePath;
@@ -502,7 +516,7 @@ export async function syncDependencies(): Promise<void> {
     content = jsonc.applyEdits(content, edits);
     edits = jsonc.modify(content, ["compilerOptions", "paths"], newPaths, options);
     content = jsonc.applyEdits(content, edits);
-    
+
     fs.writeFileSync(tsConfigPath, content);
     configLog.info("tsconfig.ide.json 更新成功！");
   }
@@ -510,7 +524,7 @@ export async function syncDependencies(): Promise<void> {
   // 5. 处理 Agent 配置文件软链接 (让多 Agent 共享 AGENTS.md)
   const agentsMd = path.resolve(process.cwd(), "AGENTS.md");
   if (fs.existsSync(agentsMd)) {
-    const agentFiles = ["GEMINI.md", "CLAUDE.md", "QWEN.md"];
+    const agentFiles = ["GEMINI.md", "QWEN.md"];
     const agentLog = logger.withTag("Agents");
     for (const agentFile of agentFiles) {
       const agentPath = path.resolve(process.cwd(), agentFile);

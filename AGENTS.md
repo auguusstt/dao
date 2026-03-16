@@ -39,47 +39,48 @@
 
 <!-- DAO_DEPS_START -->
 <!-- 自动生成，请勿手动修改 (Auto-generated, do not edit manually) -->
-- @whonb/dao@0.1.0
-  - @eslint/js: ^9.21.0 , source: .dao/ref/github.com/eslint/eslint/v9.21.0/packages/js
-  - @types/node: ^22.0.0 , source: .dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/22.0.0/types/node
-  - eslint: ^9.21.0 , source: .dao/ref/github.com/eslint/eslint/v9.21.0
-  - tsx: ^4.7.0 , source: .dao/ref/github.com/privatenumber/tsx/v4.7.0
-  - typescript: ^5.6.3 , source: .dao/ref/github.com/microsoft/TypeScript/v5.6.3
-  - typescript-eslint: ^8.25.0 , source: .dao/ref/github.com/typescript-eslint/typescript-eslint/v8.25.0/packages/typescript-eslint
-  - vitest: ^3.0.0 , source: .dao/ref/github.com/vitest-dev/vitest/v3.0.0/packages/vitest
-- @whonb/agents-gemini-cli@0.1.0
-  - @google/gemini-cli-core: ^0.34.0-preview.0
-- @whonb/dao-cli@0.1.0
-  - @google/gemini-cli-core: ^0.34.0-preview.0
-  - @mariozechner/pi-tui: ^0.57.1
-  - @opentelemetry/api: ^1.9.0
-  - @opentelemetry/exporter-trace-otlp-grpc: ^0.213.0
-  - @opentelemetry/exporter-trace-otlp-http: ^0.213.0
-  - @opentelemetry/resources: ^2.6.0
-  - @opentelemetry/sdk-trace-base: ^2.6.0
-  - @opentelemetry/semantic-conventions: ^1.40.0
-  - @types/marked: ^5.0.2
-  - @types/node: ^22.0.0 , source: .dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/22.0.0/types/node
-  - @types/ws: ^8.18.1
-  - @whonb/agents-gemini-cli: *
-  - @whonb/devtools: *
-  - chalk: ^5.6.2
-  - commander: ^14.0.1
-  - get-east-asian-width: ^1.5.0
-  - jsonc-parser: ^3.3.1
-  - marked: ^17.0.4
-  - pino: ^10.3.1
-  - pino-pretty: ^13.1.3
-  - ws: ^8.19.0
-- @whonb/dao-tui@0.1.0
-  - @mariozechner/pi-tui: ^0.57.1
-  - @types/node: ^22.0.0 , source: .dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/22.0.0/types/node
-  - @types/yoga-layout: ^1.9.2
-  - chalk: ^5.6.2
-  - typescript: ^5.0.0 , source: .dao/ref/github.com/microsoft/TypeScript/v5.6.3
-  - yoga-layout: ^3.2.1
-  - yoga-layout-prebuilt: ^1.10.0
-- @whonb/devtools@0.1.0
-  - @types/ws: ^8.5.10
-  - ws: ^8.16.0
+<!-- 依赖树格式说明: 格式为 `[包名@版本] -> [源代码目录]` , 第一层为本项目 Workspace 模块；缩进层为该模块的直接依赖；`->` 后缀指向该依赖的本地源代码映射路径，供 AI 精准分析源码。 -->
+- @whonb/dao@0.1.0 -> .
+  - @eslint/js@^9.21.0 -> .dao/ref/github.com/eslint/eslint/v9.21.0/packages/js
+  - @types/node@^22.0.0 -> .dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/22.0.0/types/node
+  - eslint@^9.21.0 -> .dao/ref/github.com/eslint/eslint/v9.21.0
+  - tsx@^4.7.0 -> .dao/ref/github.com/privatenumber/tsx/v4.7.0
+  - typescript@^5.6.3 -> .dao/ref/github.com/microsoft/TypeScript/5.0.0
+  - typescript-eslint@^8.25.0 -> .dao/ref/github.com/typescript-eslint/typescript-eslint/v8.25.0/packages/typescript-eslint
+  - vitest@^3.0.0 -> .dao/ref/github.com/vitest-dev/vitest/v3.0.0/packages/vitest
+- @whonb/agents-gemini-cli@0.1.0 -> packages/agents-gemini-cli
+  - @google/gemini-cli-core@^0.34.0-preview.0 -> .dao/ref/github.com/google-gemini/gemini-cli/v0.34.0-preview.0
+- @whonb/dao-cli@0.1.0 -> packages/dao-cli
+  - @google/gemini-cli-core@^0.34.0-preview.0 -> .dao/ref/github.com/google-gemini/gemini-cli/v0.34.0-preview.0
+  - @mariozechner/pi-tui@^0.57.1 -> .dao/ref/github.com/badlogic/pi-mono/v0.57.1/packages/tui
+  - @opentelemetry/api@^1.9.0 -> .dao/ref/github.com/open-telemetry/opentelemetry-js/v1.9.0
+  - @opentelemetry/exporter-trace-otlp-grpc@^0.213.0 -> .dao/ref/github.com/open-telemetry/opentelemetry-js/0.213.0
+  - @opentelemetry/exporter-trace-otlp-http@^0.213.0 -> .dao/ref/github.com/open-telemetry/opentelemetry-js/0.213.0
+  - @opentelemetry/resources@^2.6.0 -> .dao/ref/github.com/open-telemetry/opentelemetry-js/v2.6.0
+  - @opentelemetry/sdk-trace-base@^2.6.0 -> .dao/ref/github.com/open-telemetry/opentelemetry-js/v2.6.0
+  - @opentelemetry/semantic-conventions@^1.40.0 -> .dao/ref/github.com/open-telemetry/opentelemetry-js/1.40.0
+  - @types/marked@^5.0.2
+  - @types/node@^22.0.0 -> .dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/22.0.0/types/node
+  - @types/ws@^8.18.1 -> .dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/8.5.10/types/ws
+  - @whonb/agents-gemini-cli@*
+  - @whonb/devtools@*
+  - chalk@^5.6.2 -> .dao/ref/github.com/chalk/chalk/v5.6.2
+  - commander@^14.0.1 -> .dao/ref/github.com/tj/commander.js/v14.0.1
+  - get-east-asian-width@^1.5.0 -> .dao/ref/github.com/sindresorhus/get-east-asian-width/v1.5.0
+  - jsonc-parser@^3.3.1 -> .dao/ref/github.com/microsoft/node-jsonc-parser/v3.3.1
+  - marked@^17.0.4 -> .dao/ref/github.com/markedjs/marked/v17.0.4
+  - pino@^10.3.1 -> .dao/ref/github.com/pinojs/pino/v10.3.1
+  - pino-pretty@^13.1.3 -> .dao/ref/github.com/pinojs/pino-pretty/v13.1.3
+  - ws@^8.19.0 -> .dao/ref/github.com/websockets/ws/8.16.0
+- @whonb/dao-tui@0.1.0 -> packages/dao-tui
+  - @mariozechner/pi-tui@^0.57.1 -> .dao/ref/github.com/badlogic/pi-mono/v0.57.1/packages/tui
+  - @types/node@^22.0.0 -> .dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/22.0.0/types/node
+  - @types/yoga-layout@^1.9.2
+  - chalk@^5.6.2 -> .dao/ref/github.com/chalk/chalk/v5.6.2
+  - typescript@^5.0.0 -> .dao/ref/github.com/microsoft/TypeScript/5.0.0
+  - yoga-layout@^3.2.1 -> .dao/ref/github.com/facebook/yoga/v3.2.1
+  - yoga-layout-prebuilt@^1.10.0 -> .dao/ref/github.com/vadimdemedes/yoga-layout-prebuilt/v1.10.0
+- @whonb/devtools@0.1.0 -> packages/devtools
+  - @types/ws@^8.5.10 -> .dao/ref/github.com/DefinitelyTyped/DefinitelyTyped/8.5.10/types/ws
+  - ws@^8.16.0 -> .dao/ref/github.com/websockets/ws/8.16.0
 <!-- DAO_DEPS_END -->
