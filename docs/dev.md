@@ -9,7 +9,7 @@ draft: false
 
 ## 开发工作流 (Standard Workflow)
 
-### Git Worktree 开发流程 (强制)
+### Git Worktree 开发流程
 
 本项目采用 **Worktree 隔离开发模式**，主分支 (main) 保持稳定，不直接修改。
 
@@ -19,6 +19,7 @@ draft: false
    ```bash
    ./sha.sh worktree add dao-feature-<name>
    # 例：./sha.sh worktree add dao-feature-auth
+   # 例：./sha.sh worktree add dao-fix-bugxxx
    ```
    这将在 `.worktree/dao-feature-<name>` 创建独立的开发环境
 
@@ -36,12 +37,11 @@ draft: false
   - 运行测试验证
   - 更新 main 分支
   - 合并 worktree 分支
-  - 清理临时 worktree
+  - 清理临时 worktree `./sha.sh worktree remove dao-feature-auth`
 
 **常用命令：**
 ```bash
 ./sha.sh worktree list                # 查看所有 worktree 状态
-./sha.sh worktree help                # 显示完整帮助
 ```
 
 **AI Agent 守则：**
